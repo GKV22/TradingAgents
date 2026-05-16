@@ -4,8 +4,8 @@ from flight_tracker.search import Flight
 from flight_tracker.email_report import build_html, build_subject
 
 
-def make_flight(price=980, stops=1, duration_min=980, airline="SAA", departs="18:30"):
-    return Flight(price=price, stops=stops, duration_min=duration_min, airline=airline, departs=departs)
+def make_flight(price=980, stops=1, duration_min=980, airline="SAA", departs="18:30", flight_number="SA 101"):
+    return Flight(price=price, stops=stops, duration_min=duration_min, airline=airline, departs=departs, flight_number=flight_number)
 
 
 @pytest.mark.unit
@@ -28,14 +28,28 @@ class TestBuildSubject(unittest.TestCase):
 @pytest.mark.unit
 class TestBuildHtml(unittest.TestCase):
     def test_html_contains_flight_data(self):
-        fewest = make_flight(price=1240, stops=1, duration_min=980, airline="SAA", departs="18:30")
-        cheapest = make_flight(price=980, stops=2, duration_min=1365, airline="Ethiopian", departs="21:00")
-        html = build_html((fewest, cheapest), (None, None), "2026-05-16")
+        fewest = make_flight(price=1240, stops=1, duration_min=980, airline="SAA", departs="18:30", flight_number="SA 101")
+        cheapest = make_flight(price=980, stops=2, duration_min=1365, airline="Ethiopian", departs="21:00", flight_number="ET 508")
+        html = build_html((fewest, cheapest), (None, None), "2026-05-16", "JFK", "JNB", "2026-08-20", "2026-09-06")
         self.assertIn("SAA", html)
         self.assertIn("Ethiopian", html)
         self.assertIn("$1,240", html)
         self.assertIn("$980", html)
         self.assertIn("16h 20m", html)  # 980 min
+        self.assertIn("SA 101", html)
+        self.assertIn("ET 508", html)
+
+    def test_html_contains_search_links(self):
+        f = make_flight()
+        html = build_html((f, f), (f, f), "2026-05-16", "JFK", "JNB", "2026-08-20", "2026-09-06")
+        self.assertIn("google.com/search", html)
+        self.assertIn("JFK", html)
+        self.assertIn("JNB", html)
+
+    def test_html_no_search_link_when_no_route(self):
+        f = make_flight()
+        html = build_html((f, f), (f, f), "2026-05-16")
+        self.assertNotIn("google.com/search", html)
 
     def test_html_shows_na_for_missing_leg(self):
         html = build_html((None, None), (None, None), "2026-05-16")
@@ -61,6 +75,12 @@ class TestBuildHtml(unittest.TestCase):
         html = build_html((f, f), (f, f), "2026-05-16")
         self.assertNotIn("<script>", html)
         self.assertIn("&lt;script&gt;", html)
+
+    def test_html_escapes_flight_number(self):
+        f = make_flight(flight_number='<b>XSS</b>')
+        html = build_html((f, f), (f, f), "2026-05-16")
+        self.assertNotIn("<b>XSS</b>", html)
+        self.assertIn("&lt;b&gt;XSS&lt;/b&gt;", html)
 
 
 if __name__ == "__main__":

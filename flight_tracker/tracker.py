@@ -125,7 +125,9 @@ def main():
     subject = build_subject(outbound_picks, return_picks, today, cfg["origin"], cfg["destination"])
     if errors:
         subject = f"[ERROR] {subject}"
-    html = build_html(outbound_picks, return_picks, today)
+    html = build_html(outbound_picks, return_picks, today,
+                      origin=cfg["origin"], destination=cfg["destination"],
+                      outbound_date=cfg["outbound_date"], return_date=cfg["return_date"])
     if errors:
         error_block = "<br>".join(f"<b>Error:</b> {html_module.escape(str(e))}" for e in errors)
         html = f"<p style='color:red'>{error_block}</p>" + html

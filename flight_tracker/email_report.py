@@ -17,17 +17,26 @@ def _fmt_duration(minutes: int) -> str:
 
 def _flight_row(flight) -> dict:
     if flight is None:
-        return {"price": "N/A", "airline": "N/A", "stops": "N/A", "duration": "N/A", "departs": "N/A"}
+        return {"price": "N/A", "airline": "N/A", "stops": "N/A", "duration": "N/A", "departs": "N/A", "flight_number": "N/A"}
     return {
         "price": _fmt_price(flight.price),
         "airline": html_module.escape(flight.airline),
         "stops": str(flight.stops),
         "duration": _fmt_duration(flight.duration_min),
         "departs": html_module.escape(flight.departs),
+        "flight_number": html_module.escape(flight.flight_number or ""),
     }
 
 
-def _leg_table(title: str, picks: tuple) -> str:
+def _search_link(origin: str, destination: str, date: str) -> str:
+    if not (origin and destination and date):
+        return ""
+    query = f"flights+{origin}+to+{destination}+{date}"
+    url = f"https://www.google.com/search?q={query}"
+    return f'<p><a href="{url}">Search Google Flights: {html_module.escape(origin)} → {html_module.escape(destination)} {html_module.escape(date)}</a></p>'
+
+
+def _leg_table(title: str, picks: tuple, search_link: str = "") -> str:
     fewest, cheapest = picks
     f = _flight_row(fewest)
     c = _flight_row(cheapest)
@@ -37,11 +46,12 @@ def _leg_table(title: str, picks: tuple) -> str:
   <tr><th></th><th>Fewest Stops</th><th>Overall Cheapest</th></tr>
   <tr><td>Price</td><td>{f['price']}</td><td>{c['price']}</td></tr>
   <tr><td>Airline</td><td>{f['airline']}</td><td>{c['airline']}</td></tr>
+  <tr><td>Flight #</td><td>{f['flight_number']}</td><td>{c['flight_number']}</td></tr>
   <tr><td>Stops</td><td>{f['stops']}</td><td>{c['stops']}</td></tr>
   <tr><td>Duration</td><td>{f['duration']}</td><td>{c['duration']}</td></tr>
   <tr><td>Departs</td><td>{f['departs']}</td><td>{c['departs']}</td></tr>
 </table>
-"""
+{search_link}"""
 
 
 def build_subject(outbound_picks: tuple, return_picks: tuple, today: str, origin: str, destination: str) -> str:
@@ -54,9 +64,11 @@ def build_subject(outbound_picks: tuple, return_picks: tuple, today: str, origin
     return f"✈ {safe_origin}→{safe_dest} | Fewest Stops: {fewest_price} | Cheapest: {cheapest_price} | {today}"
 
 
-def build_html(outbound_picks: tuple, return_picks: tuple, today: str) -> str:
-    outbound_table = _leg_table("Outbound", outbound_picks)
-    return_table = _leg_table("Return", return_picks)
+def build_html(outbound_picks: tuple, return_picks: tuple, today: str,
+               origin: str = "", destination: str = "",
+               outbound_date: str = "", return_date: str = "") -> str:
+    outbound_table = _leg_table("Outbound", outbound_picks, _search_link(origin, destination, outbound_date))
+    return_table = _leg_table("Return", return_picks, _search_link(destination, origin, return_date))
     return f"""<html><body>
 {outbound_table}
 {return_table}

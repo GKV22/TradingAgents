@@ -5,13 +5,13 @@ from flight_tracker.search import Flight, _normalize_response
 
 @pytest.mark.unit
 class TestNormalizeResponse(unittest.TestCase):
-    def _make_item(self, price=980, layovers=None, duration=900, airline="Delta", departs="18:30"):
+    def _make_item(self, price=980, layovers=None, duration=900, airline="Delta", departs="18:30", flight_number="DL 401"):
         return {
             "price": price,
             "layovers": layovers or [],
             "total_duration": duration,
             "flights": [
-                {"airline": airline, "departure_airport": {"time": departs}}
+                {"airline": airline, "departure_airport": {"time": departs}, "flight_number": flight_number}
             ],
         }
 
@@ -25,6 +25,13 @@ class TestNormalizeResponse(unittest.TestCase):
         self.assertEqual(f.duration_min, 900)
         self.assertEqual(f.airline, "Delta")
         self.assertEqual(f.departs, "18:30")
+        self.assertEqual(f.flight_number, "DL 401")
+
+    def test_flight_number_absent_defaults_to_empty_string(self):
+        item = self._make_item()
+        del item["flights"][0]["flight_number"]
+        flights = _normalize_response({"best_flights": [item]})
+        self.assertEqual(flights[0].flight_number, "")
 
     def test_combines_best_and_other_flights(self):
         item1 = self._make_item(price=800)
