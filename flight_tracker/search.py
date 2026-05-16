@@ -2,7 +2,7 @@
 from collections import namedtuple
 from serpapi import GoogleSearch
 
-Flight = namedtuple("Flight", ["price", "stops", "duration_min", "airline", "departs"])
+Flight = namedtuple("Flight", ["price", "stops", "duration_min", "airline", "departs", "flight_number"], defaults=[""])
 
 
 def _normalize_response(response: dict) -> list:
@@ -19,6 +19,7 @@ def _normalize_response(response: dict) -> list:
                 duration_min=item.get("total_duration") or 0,  # None → 0 (key present with null value)
                 airline=item["flights"][0]["airline"],
                 departs=item["flights"][0]["departure_airport"]["time"],
+                flight_number=item["flights"][0].get("flight_number", ""),
             ))
         except (IndexError, KeyError):
             continue  # skip items where SerpAPI omits expected sub-fields
