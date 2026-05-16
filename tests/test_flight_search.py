@@ -73,6 +73,22 @@ class TestNormalizeResponse(unittest.TestCase):
         flights = _normalize_response({"best_flights": [item]})
         self.assertEqual(flights[0].stops, 2)
 
+    def test_skips_item_with_null_layovers(self):
+        good = self._make_item(price=800)
+        bad = self._make_item(price=500)
+        bad["layovers"] = None  # SerpAPI returns null instead of []
+        flights = _normalize_response({"best_flights": [bad, good]})
+        # bad item should survive (layovers=None treated as 0 stops), not crash
+        self.assertEqual(len(flights), 2)
+
+    def test_skips_item_with_null_departure_airport(self):
+        good = self._make_item(price=800)
+        bad = self._make_item(price=500)
+        bad["flights"][0]["departure_airport"] = None  # SerpAPI returns null
+        flights = _normalize_response({"best_flights": [bad, good]})
+        self.assertEqual(len(flights), 1)
+        self.assertEqual(flights[0].price, 800)
+
     def test_skips_malformed_item_missing_flights_key(self):
         good = self._make_item(price=800)
         bad = {"price": 500, "layovers": [], "total_duration": 600}  # no "flights" key

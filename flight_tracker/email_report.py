@@ -3,6 +3,7 @@ import smtplib
 import ssl
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+from urllib.parse import quote_plus
 
 
 def _fmt_price(price) -> str:
@@ -31,8 +32,8 @@ def _flight_row(flight) -> dict:
 def _search_link(origin: str, destination: str, date: str) -> str:
     if not (origin and destination and date):
         return ""
-    query = f"flights+{origin}+to+{destination}+{date}"
-    url = f"https://www.google.com/search?q={query}"
+    query = quote_plus(f"flights {origin} to {destination} {date}")
+    url = html_module.escape(f"https://www.google.com/search?q={query}")
     return f'<p><a href="{url}">Search Google Flights: {html_module.escape(origin)} → {html_module.escape(destination)} {html_module.escape(date)}</a></p>'
 
 

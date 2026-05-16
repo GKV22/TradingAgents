@@ -1,6 +1,7 @@
 import csv
 import os
 import sys
+import tempfile
 from datetime import date
 
 import html as html_module
@@ -88,13 +89,18 @@ def _update_history(today: str, outbound_picks: tuple, return_picks: tuple, path
     existing = []
     if os.path.exists(path):
         with open(path, newline="") as f:
-            existing = [r for r in csv.DictReader(f) if r["date"] != today]
+            existing = [r for r in csv.DictReader(f) if r.get("date") != today]
     new_row = _build_row(today, outbound_picks, return_picks, outbound_pe_picks, return_pe_picks)
-    with open(path, "w", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=_CSV_FIELDS, extrasaction="ignore")
+    dir_ = os.path.dirname(path) or "."
+    with tempfile.NamedTemporaryFile("w", dir=dir_, suffix=".tmp", delete=False, newline="") as tmp:
+        tmp_path = tmp.name
+        writer = csv.DictWriter(tmp, fieldnames=_CSV_FIELDS, extrasaction="ignore")
         writer.writeheader()
         writer.writerows(existing)
         writer.writerow(new_row)
+        tmp.flush()
+        os.fsync(tmp.fileno())
+    os.replace(tmp_path, path)
 
 
 def _safe_search(origin, destination, flight_date, api_key, travel_class=1):
