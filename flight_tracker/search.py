@@ -15,14 +15,14 @@ def _normalize_response(response: dict) -> list:
         try:
             flights.append(Flight(
                 price=price,
-                stops=len(item.get("layovers", [])),
+                stops=len(item.get("layovers") or []),
                 duration_min=item.get("total_duration") or 0,  # None → 0 (key present with null value)
                 airline=item["flights"][0]["airline"],
                 departs=item["flights"][0]["departure_airport"]["time"],
                 flight_number=item["flights"][0].get("flight_number", ""),
             ))
-        except (IndexError, KeyError):
-            continue  # skip items where SerpAPI omits expected sub-fields
+        except (IndexError, KeyError, TypeError):
+            continue  # skip items where SerpAPI omits or nulls expected sub-fields
     return flights
 
 

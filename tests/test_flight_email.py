@@ -51,6 +51,13 @@ class TestBuildHtml(unittest.TestCase):
         self.assertIn("JFK", html)
         self.assertIn("JNB", html)
 
+    def test_search_link_url_encodes_query(self):
+        f = make_flight()
+        html = build_html((f, f), (f, f), "2026-05-16", "JFK", "JNB", "2026-08-20", "2026-09-06")
+        # spaces encoded as + not raw spaces; no bare special chars in href
+        self.assertIn("flights+JFK+to+JNB", html)
+        self.assertNotIn(' href="https://www.google.com/search?q=flights JFK', html)
+
     def test_html_no_search_link_when_no_route(self):
         f = make_flight()
         html = build_html((f, f), (f, f), "2026-05-16")
