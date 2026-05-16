@@ -66,12 +66,15 @@ def build_subject(outbound_picks: tuple, return_picks: tuple, today: str, origin
 
 def build_html(outbound_picks: tuple, return_picks: tuple, today: str,
                origin: str = "", destination: str = "",
-               outbound_date: str = "", return_date: str = "") -> str:
-    outbound_table = _leg_table("Outbound", outbound_picks, _search_link(origin, destination, outbound_date))
-    return_table = _leg_table("Return", return_picks, _search_link(destination, origin, return_date))
+               outbound_date: str = "", return_date: str = "",
+               outbound_pe_picks: tuple = (None, None), return_pe_picks: tuple = (None, None)) -> str:
+    ob_link = _search_link(origin, destination, outbound_date)
+    ret_link = _search_link(destination, origin, return_date)
     return f"""<html><body>
-{outbound_table}
-{return_table}
+{_leg_table("Outbound &mdash; Economy", outbound_picks, ob_link)}
+{_leg_table("Outbound &mdash; Premium Economy", outbound_pe_picks, ob_link)}
+{_leg_table("Return &mdash; Economy", return_picks, ret_link)}
+{_leg_table("Return &mdash; Premium Economy", return_pe_picks, ret_link)}
 <p><small>Searched via SerpAPI Google Flights &middot; History tracked in history.csv</small></p>
 </body></html>"""
 
