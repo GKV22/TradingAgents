@@ -26,13 +26,14 @@ def _normalize_response(response: dict) -> list:
     return flights
 
 
-def search_flights(origin: str, destination: str, date: str, api_key: str) -> list:
+def search_flights(origin: str, destination: str, date: str, api_key: str, travel_class: int = 1) -> list:
     params = {
         "engine": "google_flights",
         "departure_id": origin,
         "arrival_id": destination,
         "outbound_date": date,
         "type": "2",       # one-way — required for per-leg pricing (default is round-trip bundled)
+        "travel_class": travel_class,  # 1=economy 2=premium_economy 3=business 4=first
         "currency": "USD",
         "hl": "en",
         "api_key": api_key,

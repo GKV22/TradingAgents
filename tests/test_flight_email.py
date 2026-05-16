@@ -30,7 +30,9 @@ class TestBuildHtml(unittest.TestCase):
     def test_html_contains_flight_data(self):
         fewest = make_flight(price=1240, stops=1, duration_min=980, airline="SAA", departs="18:30", flight_number="SA 101")
         cheapest = make_flight(price=980, stops=2, duration_min=1365, airline="Ethiopian", departs="21:00", flight_number="ET 508")
-        html = build_html((fewest, cheapest), (None, None), "2026-05-16", "JFK", "JNB", "2026-08-20", "2026-09-06")
+        pe = make_flight(price=1800, stops=0, airline="Qatar", flight_number="QR 001")
+        html = build_html((fewest, cheapest), (None, None), "2026-05-16", "JFK", "JNB", "2026-08-20", "2026-09-06",
+                          outbound_pe_picks=(pe, pe))
         self.assertIn("SAA", html)
         self.assertIn("Ethiopian", html)
         self.assertIn("$1,240", html)
@@ -38,6 +40,9 @@ class TestBuildHtml(unittest.TestCase):
         self.assertIn("16h 20m", html)  # 980 min
         self.assertIn("SA 101", html)
         self.assertIn("ET 508", html)
+        self.assertIn("Qatar", html)
+        self.assertIn("QR 001", html)
+        self.assertIn("Premium Economy", html)
 
     def test_html_contains_search_links(self):
         f = make_flight()

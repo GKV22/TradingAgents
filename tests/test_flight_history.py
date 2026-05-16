@@ -11,9 +11,9 @@ def make_flight(price=980, stops=1, duration_min=980, airline="SAA", departs="18
 
 @pytest.mark.unit
 class TestBuildRow(unittest.TestCase):
-    def test_row_has_schema_version_1(self):
+    def test_row_has_schema_version_2(self):
         row = _build_row("2026-05-16", (None, None), (None, None))
-        self.assertEqual(row["schema_version"], "1")
+        self.assertEqual(row["schema_version"], "2")
 
     def test_row_has_correct_date(self):
         row = _build_row("2026-05-16", (None, None), (None, None))
@@ -32,6 +32,19 @@ class TestBuildRow(unittest.TestCase):
         self.assertEqual(row["outbound_fewest_stops_stops"], "1")
         self.assertEqual(row["outbound_fewest_stops_duration"], "900")
 
+    def test_row_pe_populated_with_picks(self):
+        eco = make_flight(price=980, stops=1, airline="SAA")
+        pe = make_flight(price=1500, stops=0, airline="Qatar")
+        row = _build_row("2026-05-16", (eco, eco), (eco, eco), outbound_pe_picks=(pe, pe), return_pe_picks=(pe, pe))
+        self.assertEqual(row["outbound_pe_fewest_stops_price"], "1500")
+        self.assertEqual(row["outbound_pe_fewest_stops_airline"], "Qatar")
+        self.assertEqual(row["return_pe_cheapest_stops"], "0")
+
+    def test_row_pe_empty_by_default(self):
+        row = _build_row("2026-05-16", (None, None), (None, None))
+        self.assertEqual(row["outbound_pe_fewest_stops_price"], "")
+        self.assertEqual(row["return_pe_cheapest_airline"], "")
+
 
 @pytest.mark.unit
 class TestUpdateHistory(unittest.TestCase):
@@ -45,6 +58,14 @@ class TestUpdateHistory(unittest.TestCase):
         "return_fewest_stops_stops", "return_fewest_stops_duration",
         "return_cheapest_price", "return_cheapest_airline",
         "return_cheapest_stops", "return_cheapest_duration",
+        "outbound_pe_fewest_stops_price", "outbound_pe_fewest_stops_airline",
+        "outbound_pe_fewest_stops_stops", "outbound_pe_fewest_stops_duration",
+        "outbound_pe_cheapest_price", "outbound_pe_cheapest_airline",
+        "outbound_pe_cheapest_stops", "outbound_pe_cheapest_duration",
+        "return_pe_fewest_stops_price", "return_pe_fewest_stops_airline",
+        "return_pe_fewest_stops_stops", "return_pe_fewest_stops_duration",
+        "return_pe_cheapest_price", "return_pe_cheapest_airline",
+        "return_pe_cheapest_stops", "return_pe_cheapest_duration",
     ]
 
     def _read_csv(self, path):

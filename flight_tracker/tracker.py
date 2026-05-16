@@ -22,6 +22,14 @@ _CSV_FIELDS = [
     "return_fewest_stops_stops", "return_fewest_stops_duration",
     "return_cheapest_price", "return_cheapest_airline",
     "return_cheapest_stops", "return_cheapest_duration",
+    "outbound_pe_fewest_stops_price", "outbound_pe_fewest_stops_airline",
+    "outbound_pe_fewest_stops_stops", "outbound_pe_fewest_stops_duration",
+    "outbound_pe_cheapest_price", "outbound_pe_cheapest_airline",
+    "outbound_pe_cheapest_stops", "outbound_pe_cheapest_duration",
+    "return_pe_fewest_stops_price", "return_pe_fewest_stops_airline",
+    "return_pe_fewest_stops_stops", "return_pe_fewest_stops_duration",
+    "return_pe_cheapest_price", "return_pe_cheapest_airline",
+    "return_pe_cheapest_stops", "return_pe_cheapest_duration",
 ]
 
 
@@ -31,11 +39,14 @@ def _pick_val(flight, field):
     return str(getattr(flight, field))
 
 
-def _build_row(today: str, outbound_picks: tuple, return_picks: tuple) -> dict:
+def _build_row(today: str, outbound_picks: tuple, return_picks: tuple,
+               outbound_pe_picks: tuple = (None, None), return_pe_picks: tuple = (None, None)) -> dict:
     ob_fewest, ob_cheapest = outbound_picks
     ret_fewest, ret_cheapest = return_picks
+    ob_pe_fewest, ob_pe_cheapest = outbound_pe_picks
+    ret_pe_fewest, ret_pe_cheapest = return_pe_picks
     return {
-        "schema_version": "1",
+        "schema_version": "2",
         "date": today,
         "outbound_fewest_stops_price": _pick_val(ob_fewest, "price"),
         "outbound_fewest_stops_airline": _pick_val(ob_fewest, "airline"),
@@ -53,25 +64,42 @@ def _build_row(today: str, outbound_picks: tuple, return_picks: tuple) -> dict:
         "return_cheapest_airline": _pick_val(ret_cheapest, "airline"),
         "return_cheapest_stops": _pick_val(ret_cheapest, "stops"),
         "return_cheapest_duration": _pick_val(ret_cheapest, "duration_min"),
+        "outbound_pe_fewest_stops_price": _pick_val(ob_pe_fewest, "price"),
+        "outbound_pe_fewest_stops_airline": _pick_val(ob_pe_fewest, "airline"),
+        "outbound_pe_fewest_stops_stops": _pick_val(ob_pe_fewest, "stops"),
+        "outbound_pe_fewest_stops_duration": _pick_val(ob_pe_fewest, "duration_min"),
+        "outbound_pe_cheapest_price": _pick_val(ob_pe_cheapest, "price"),
+        "outbound_pe_cheapest_airline": _pick_val(ob_pe_cheapest, "airline"),
+        "outbound_pe_cheapest_stops": _pick_val(ob_pe_cheapest, "stops"),
+        "outbound_pe_cheapest_duration": _pick_val(ob_pe_cheapest, "duration_min"),
+        "return_pe_fewest_stops_price": _pick_val(ret_pe_fewest, "price"),
+        "return_pe_fewest_stops_airline": _pick_val(ret_pe_fewest, "airline"),
+        "return_pe_fewest_stops_stops": _pick_val(ret_pe_fewest, "stops"),
+        "return_pe_fewest_stops_duration": _pick_val(ret_pe_fewest, "duration_min"),
+        "return_pe_cheapest_price": _pick_val(ret_pe_cheapest, "price"),
+        "return_pe_cheapest_airline": _pick_val(ret_pe_cheapest, "airline"),
+        "return_pe_cheapest_stops": _pick_val(ret_pe_cheapest, "stops"),
+        "return_pe_cheapest_duration": _pick_val(ret_pe_cheapest, "duration_min"),
     }
 
 
-def _update_history(today: str, outbound_picks: tuple, return_picks: tuple, path: str) -> None:
+def _update_history(today: str, outbound_picks: tuple, return_picks: tuple, path: str,
+                    outbound_pe_picks: tuple = (None, None), return_pe_picks: tuple = (None, None)) -> None:
     existing = []
     if os.path.exists(path):
         with open(path, newline="") as f:
             existing = [r for r in csv.DictReader(f) if r["date"] != today]
-    new_row = _build_row(today, outbound_picks, return_picks)
+    new_row = _build_row(today, outbound_picks, return_picks, outbound_pe_picks, return_pe_picks)
     with open(path, "w", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=_CSV_FIELDS)
+        writer = csv.DictWriter(f, fieldnames=_CSV_FIELDS, extrasaction="ignore")
         writer.writeheader()
         writer.writerows(existing)
         writer.writerow(new_row)
 
 
-def _safe_search(origin, destination, flight_date, api_key):
+def _safe_search(origin, destination, flight_date, api_key, travel_class=1):
     try:
-        flights = search_flights(origin, destination, flight_date, api_key)
+        flights = search_flights(origin, destination, flight_date, api_key, travel_class=travel_class)
         return flights, None
     except Exception as exc:
         err_str = str(exc)
@@ -115,19 +143,29 @@ def main():
     return_flights, return_err = _safe_search(
         cfg["destination"], cfg["origin"], cfg["return_date"], cfg["serpapi_key"]
     )
+    outbound_pe_flights, outbound_pe_err = _safe_search(
+        cfg["origin"], cfg["destination"], cfg["outbound_date"], cfg["serpapi_key"], travel_class=2
+    )
+    return_pe_flights, return_pe_err = _safe_search(
+        cfg["destination"], cfg["origin"], cfg["return_date"], cfg["serpapi_key"], travel_class=2
+    )
 
     outbound_picks = select_picks(outbound_flights)
     return_picks = select_picks(return_flights)
+    outbound_pe_picks = select_picks(outbound_pe_flights)
+    return_pe_picks = select_picks(return_pe_flights)
 
-    _update_history(today, outbound_picks, return_picks, _HISTORY_PATH)
+    _update_history(today, outbound_picks, return_picks, _HISTORY_PATH,
+                    outbound_pe_picks=outbound_pe_picks, return_pe_picks=return_pe_picks)
 
-    errors = [e for e in (outbound_err, return_err) if e]
+    errors = [e for e in (outbound_err, return_err, outbound_pe_err, return_pe_err) if e]
     subject = build_subject(outbound_picks, return_picks, today, cfg["origin"], cfg["destination"])
     if errors:
         subject = f"[ERROR] {subject}"
     html = build_html(outbound_picks, return_picks, today,
                       origin=cfg["origin"], destination=cfg["destination"],
-                      outbound_date=cfg["outbound_date"], return_date=cfg["return_date"])
+                      outbound_date=cfg["outbound_date"], return_date=cfg["return_date"],
+                      outbound_pe_picks=outbound_pe_picks, return_pe_picks=return_pe_picks)
     if errors:
         error_block = "<br>".join(f"<b>Error:</b> {html_module.escape(str(e))}" for e in errors)
         html = f"<p style='color:red'>{error_block}</p>" + html
