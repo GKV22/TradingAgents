@@ -28,6 +28,7 @@ jobs:
       - name: Run flight tracker
         run: python flight_tracker/tracker.py
         env:
+          PYTHONPATH: ${{ github.workspace }}
           SERPAPI_KEY: ${{ secrets.SERPAPI_KEY }}
           GMAIL_USER: ${{ secrets.GMAIL_USER }}
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
