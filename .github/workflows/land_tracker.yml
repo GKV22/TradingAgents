@@ -38,6 +38,7 @@ jobs:
           LAND_MAX_PRICE: ${{ vars.LAND_MAX_PRICE }}
           LAND_MIN_ACRES: ${{ vars.LAND_MIN_ACRES }}
           LAND_SEARCH_PROVIDER: ${{ vars.LAND_SEARCH_PROVIDER }}
+          LAND_SEARCH_LOCATIONS: ${{ vars.LAND_SEARCH_LOCATIONS }}
 
       - name: Commit history
         run: |
