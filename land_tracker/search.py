@@ -137,7 +137,15 @@ def _search_one_location(location: str, api_key: str) -> list:
         "api_key": api_key,
     }
     search = GoogleSearch(params)
-    return _normalize_serpapi(search.get_dict())
+    response = search.get_dict()
+    props = _extract_props(response)
+    top_keys = list(response.keys())
+    print(f"[DEBUG {location}] response keys: {top_keys}")
+    print(f"[DEBUG {location}] {len(props)} raw properties")
+    if props:
+        print(f"[DEBUG {location}] first prop keys: {list(props[0].keys())}")
+        print(f"[DEBUG {location}] first prop: price={props[0].get('price')} lot={props[0].get('lot_size')} acres={props[0].get('acres')}")
+    return _normalize_serpapi(response)
 
 
 def search_land_serpapi(locations: list, api_key: str) -> list:
