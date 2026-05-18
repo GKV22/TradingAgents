@@ -72,9 +72,18 @@ def _make_listing_id(prop: dict, address: str) -> str:
     return hashlib.md5(raw.encode()).hexdigest()[:12]
 
 
+def _extract_props(response: dict) -> list:
+    """google_real_estate returns properties under different keys depending on query."""
+    for key in ("properties", "local_results", "results"):
+        items = response.get(key)
+        if items:
+            return items
+    return []
+
+
 def _normalize_serpapi(response: dict) -> list:
     listings = []
-    for prop in response.get("properties", []):
+    for prop in _extract_props(response):
         try:
             price = _parse_price(prop.get("price"))
             if price is None:
@@ -119,10 +128,10 @@ def _normalize_serpapi(response: dict) -> list:
     return listings
 
 
-def search_land_serpapi(location: str, api_key: str) -> list:
+def _search_one_location(location: str, api_key: str) -> list:
     params = {
         "engine": "google_real_estate",
-        "q": f"land acreage farm for sale {location} SC",
+        "q": f"land farm acreage for sale {location} SC",
         "hl": "en",
         "gl": "us",
         "api_key": api_key,
@@ -131,17 +140,32 @@ def search_land_serpapi(location: str, api_key: str) -> list:
     return _normalize_serpapi(search.get_dict())
 
 
-def search_land_zillow(location: str, api_key: str) -> list:
+def search_land_serpapi(locations: list, api_key: str) -> list:
+    """Search each location separately and deduplicate by listing_id."""
+    seen_ids: set = set()
+    results = []
+    for loc in locations:
+        try:
+            for listing in _search_one_location(loc, api_key):
+                if listing.listing_id not in seen_ids:
+                    seen_ids.add(listing.listing_id)
+                    results.append(listing)
+        except Exception:
+            continue  # one failed location doesn't kill the whole run
+    return results
+
+
+def search_land_zillow(locations: list, api_key: str) -> list:
     # TODO: implement via RapidAPI zillow-com1
     # endpoint: /propertyExtendedSearch
-    # params: location=location, status_type=ForSale, home_type=LotOrLand
+    # params: location=locations[0], status_type=ForSale, home_type=LotOrLand
     # header: X-RapidAPI-Key: api_key
     raise NotImplementedError("Zillow provider not yet implemented — add LAND_SEARCH_PROVIDER=zillow and a ZILLOW_API_KEY")
 
 
-def search_land(location: str, api_key: str, provider: str = "serpapi") -> list:
+def search_land(locations: list, api_key: str, provider: str = "serpapi") -> list:
     if provider == "serpapi":
-        return search_land_serpapi(location, api_key)
+        return search_land_serpapi(locations, api_key)
     if provider == "zillow":
-        return search_land_zillow(location, api_key)
+        return search_land_zillow(locations, api_key)
     raise ValueError(f"Unknown land search provider: {provider!r}")

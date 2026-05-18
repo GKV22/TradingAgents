@@ -2,7 +2,7 @@ import unittest
 import pytest
 from land_tracker.search import (
     LandListing, _parse_price, _parse_acres, _acres_from_description,
-    _normalize_serpapi, _make_listing_id,
+    _normalize_serpapi, _make_listing_id, _extract_props,
 )
 
 
@@ -115,6 +115,23 @@ class TestNormalizeSerpapi(unittest.TestCase):
         listings = _normalize_serpapi({"properties": [prop]})
         self.assertEqual(len(listings), 1)
         self.assertTrue(len(listings[0].listing_id) > 0)
+
+    def test_local_results_key_used_when_properties_absent(self):
+        prop = _make_prop()
+        listings = _normalize_serpapi({"local_results": [prop]})
+        self.assertEqual(len(listings), 1)
+
+    def test_results_key_used_as_fallback(self):
+        prop = _make_prop()
+        listings = _normalize_serpapi({"results": [prop]})
+        self.assertEqual(len(listings), 1)
+
+    def test_properties_key_takes_priority(self):
+        prop1 = _make_prop(property_id="p1", price=100000)
+        prop2 = _make_prop(property_id="p2", price=200000)
+        listings = _normalize_serpapi({"properties": [prop1], "local_results": [prop2]})
+        self.assertEqual(len(listings), 1)
+        self.assertEqual(listings[0].listing_id, "p1")
 
 
 if __name__ == "__main__":
