@@ -113,9 +113,9 @@ def _update_history(today: str, current: list, history: dict, path: str) -> None
     os.replace(tmp_path, path)
 
 
-def _safe_search(location: str, api_key: str, provider: str) -> tuple:
+def _safe_search(locations: list, api_key: str, provider: str) -> tuple:
     try:
-        listings = search_land(location, api_key, provider=provider)
+        listings = search_land(locations, api_key, provider=provider)
         return listings, None
     except Exception as exc:
         err_str = str(exc)
@@ -146,7 +146,7 @@ def main():
                 pass
         sys.exit(0)
 
-    raw_listings, search_err = _safe_search(cfg["location"], cfg["serpapi_key"], cfg["provider"])
+    raw_listings, search_err = _safe_search(cfg["search_locations"], cfg["serpapi_key"], cfg["provider"])
     current = filter_and_score(raw_listings, cfg["max_price"], cfg["min_acres"])
 
     history = _load_history(_HISTORY_PATH)
