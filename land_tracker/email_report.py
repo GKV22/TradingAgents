@@ -55,7 +55,8 @@ def _table(listings: list) -> str:
 
 
 def build_html(new_listings: list, price_drops: list, gone_count: int,
-               all_active: list, location: str, today: str) -> str:
+               all_active: list, location: str, today: str,
+               min_acres: float = 10.0, max_price: int = 250000) -> str:
     search_url = html_module.escape(
         f"https://www.google.com/search?q={quote_plus('land for sale ' + location + ' SC acres farmland')}"
     )
@@ -89,7 +90,7 @@ def build_html(new_listings: list, price_drops: list, gone_count: int,
 
     return f"""<html><body>
 <h1>🌾 Land Tracker — {html_module.escape(location)} area — {html_module.escape(today)}</h1>
-<p>Criteria: ≥10 acres · ≤$250,000 · within 60 miles of {html_module.escape(location)}</p>
+<p>Criteria: ≥{min_acres:g} acres · ≤{_fmt_price(max_price)} · within 60 miles of {html_module.escape(location)}</p>
 <p><small>Wetland risk: <span style="background:#ffcccc">HIGH</span> &nbsp;
 <span style="background:#fff3cc">MEDIUM</span> &nbsp; UNKNOWN = not mentioned in listing</small></p>
 

@@ -50,6 +50,15 @@ class TestBuildHtml(unittest.TestCase):
         self.assertIn("$100,000", html)
         self.assertIn("15 acres", html)
 
+    def test_criteria_reflects_config(self):
+        html = build_html([], [], 0, [], "29588", "2026-05-18", min_acres=5.0, max_price=250000)
+        self.assertIn("≥5 acres", html)
+        self.assertIn("$250,000", html)
+
+    def test_criteria_default_values(self):
+        html = build_html([], [], 0, [], "29588", "2026-05-18")
+        self.assertIn("≥10 acres", html)
+
     def test_high_wetland_gets_red_background(self):
         l = make_listing(wetland_risk="HIGH")
         html = build_html([l], [], 0, [l], "29588", "2026-05-18")
