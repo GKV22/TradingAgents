@@ -159,7 +159,8 @@ def main():
         subject = f"[ERROR] {subject}"
 
     html = build_html(new_listings, price_drops, len(gone_ids), current,
-                      cfg["location"], today)
+                      cfg["location"], today,
+                      min_acres=cfg["min_acres"], max_price=cfg["max_price"])
     if search_err:
         html = f"<p style='color:red'><b>Search error:</b> {html_module.escape(str(search_err))}</p>" + html
 
