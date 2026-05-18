@@ -1,0 +1,50 @@
+name: Land Tracker
+
+on:
+  schedule:
+    - cron: '33 7 * * *'   # 07:33 UTC daily — offset from flight tracker (07:17)
+  workflow_dispatch:         # allow manual trigger for testing
+
+permissions:
+  contents: write            # required for git push of history.csv
+
+concurrency:
+  group: land-tracker
+  cancel-in-progress: false  # queue runs; never cancel mid-write
+
+jobs:
+  track:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install -r land_tracker/requirements.txt
+
+      - name: Run land tracker
+        run: python -m land_tracker.tracker
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+          SERPAPI_KEY: ${{ secrets.SERPAPI_KEY }}
+          GMAIL_USER: ${{ secrets.GMAIL_USER }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          ALERT_EMAIL: ${{ secrets.ALERT_EMAIL }}
+          LAND_LOCATION: ${{ vars.LAND_LOCATION }}
+          LAND_RADIUS_MILES: ${{ vars.LAND_RADIUS_MILES }}
+          LAND_MAX_PRICE: ${{ vars.LAND_MAX_PRICE }}
+          LAND_MIN_ACRES: ${{ vars.LAND_MIN_ACRES }}
+          LAND_SEARCH_PROVIDER: ${{ vars.LAND_SEARCH_PROVIDER }}
+
+      - name: Commit history
+        run: |
+          git config --local user.name "land-tracker[bot]"
+          git config --local user.email "actions@github.com"
+          git add land_tracker/history.csv
+          git diff --staged --quiet && exit 0
+          git commit -m "chore: land tracker history $(date +%Y-%m-%d)"
+          git pull --rebase -X theirs origin ${{ github.ref_name }}
+          git push
