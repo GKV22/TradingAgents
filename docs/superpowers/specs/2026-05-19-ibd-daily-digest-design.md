@@ -5,7 +5,7 @@
 
 ## Overview
 
-Automated daily script that logs into investors.com, downloads the IBD daily paper PDF, extracts buy candidates and market signals using Claude, and emails a structured 2-page HTML digest to geoff.cavey@gmail.com at 6 AM via Windows Task Scheduler.
+Automated weekly script that logs into investors.com, navigates to the eIBD SPA (`https://research.investors.com/eIBD/#/`), downloads the full edition PDF, extracts buy candidates and market signals using Claude, and emails a structured 2-page HTML digest to geoff.cavey@gmail.com every Monday at 6 AM via Windows Task Scheduler.
 
 ## Goals
 
@@ -36,27 +36,38 @@ Automated login and programmatic download of IBD content may conflict with inves
 
 ### IBD Publication Schedule
 
-IBD's digital edition PDF is published overnight. Exact availability time varies. A fixed 6 AM trigger may arrive before the PDF is posted.
+eIBD is a **weekly** publication, released each Monday (confirmed: 4 May, 11 May, 18 May 2026). The edition is typically available Sunday night / early Monday morning. A 6 AM Monday trigger may occasionally arrive before posting.
 
-**Mitigation:** Script retries PDF download every 10 minutes for up to 90 minutes. If not found by 7:30 AM, sends alert email and exits with non-zero code.
+**Mitigation:** Script retries every 10 minutes for up to 30 minutes. If not found by 6:30 AM, sends alert email and exits with non-zero code. A 30-minute window is sufficient for a weekly publication that is almost always available before 6 AM.
+
+### eIBD is a JavaScript SPA
+
+`https://research.investors.com/eIBD/#/` uses hash-based routing (`#/`) — the eReader is fully JS-rendered. There is no direct PDF URL. Playwright must:
+1. Wait for the eReader to fully initialize after navigation
+2. Locate and click the "Download PDF" (whole edition) button
+3. Wait for the browser download to complete before proceeding
 
 ## Architecture
 
 ```
-Windows Task Scheduler (6:00 AM daily)
+Windows Task Scheduler (6:00 AM every Monday)
     │
     ▼
 scripts/ibd_digest.py
     │
-    ├─ 1. Playwright (+stealth): login investors.com → navigate → download PDF
-    │       Validate: magic bytes confirm real PDF
-    │       Retry: every 10 min up to 90 min if PDF not yet posted
-    │       Re-auth: on each retry attempt, re-login if session may have expired (>15 min since last login)
+    ├─ 1. Playwright (+stealth):
+    │       a. Login at investors.com (form submit, wait for auth redirect)
+    │       b. Navigate to https://research.investors.com/eIBD/#/
+    │       c. Wait for SPA/eReader to fully initialize (JS-rendered)
+    │       d. Click "Download PDF" (whole edition) → wait for download
+    │       e. Validate: magic bytes confirm real PDF
+    │       f. Retry loop: every 10 min up to 30 min if PDF not yet posted
+    │          Re-login on each retry (session safety)
     │
     ├─ 2. PyMuPDF (fitz): extract full text from all pages
     │
     ├─ 3. Claude API (claude-sonnet-4-6): extract structured JSON digest
-    │       → validate schema (candidate count, required fields)
+    │       → Pydantic validation (DigestSchema)
     │       → render JSON to HTML
     │
     └─ 4. smtplib: send HTML email → geoff.cavey@gmail.com
@@ -70,7 +81,7 @@ scripts/ibd_digest.py
 
 | Function | Purpose |
 |---|---|
-| `login_and_download_pdf()` | Playwright+stealth: login, navigate, download PDF; validate magic bytes; retry loop |
+| `login_and_download_pdf()` | Playwright+stealth: (a) login investors.com, (b) navigate to eIBD SPA, (c) wait for JS eReader init, (d) click download whole edition, (e) validate magic bytes; retry loop with re-login |
 | `extract_text(pdf_path)` | PyMuPDF: extract raw text from all pages |
 | `summarize(text) -> DigestSchema` | Claude API: extract structured JSON matching DigestSchema |
 | `render_html(digest: DigestSchema) -> str` | Python: render DigestSchema to HTML email body |
@@ -137,7 +148,7 @@ If Claude returns invalid JSON or Pydantic validation fails, retry once with a c
 ### Email Format
 
 ```
-Subject: IBD Daily Digest — YYYY-MM-DD
+Subject: IBD Weekly Digest — Week of YYYY-MM-DD
 
 MARKET PULSE
 Current outlook: Confirmed Uptrend
@@ -184,7 +195,7 @@ ANTHROPIC_API_KEY=   # already present in project
 | Failure | Behaviour |
 |---|---|
 | Login fails | Send alert email; exit code 1 |
-| PDF not found after 90 min retry | Send alert email; exit code 1 |
+| PDF not found after 30 min retry | Send alert email; exit code 1 |
 | Downloaded file is not valid PDF | Send alert email; exit code 1 |
 | Claude returns invalid JSON (after 1 retry) | Send alert email; exit code 1 |
 | Gmail send fails (primary digest) | Write digest to `reports/ibd_YYYYMMDD.html`; exit code 1 |
@@ -195,7 +206,7 @@ All events appended to `logs/ibd_digest.log` with credential sanitization.
 ## Scheduling
 
 Windows Task Scheduler:
-- Trigger: Daily at 06:00 AM
+- Trigger: Weekly — every Monday at 06:00 AM (matches eIBD publication cadence)
 - Action: `python scripts/ibd_digest.py`
 - Working directory: repo root
 - **Run only when user is logged on** — required because the anti-bot fallback (`headless=False`) needs a desktop session. "Run whether user is logged on or not" is incompatible with visible-browser mode (no desktop in non-interactive Windows sessions). A home machine left running overnight satisfies this.
@@ -242,8 +253,8 @@ The prompt instructs Claude explicitly:
 
 ## Success Criteria
 
-- Script runs at 6 AM with no terminal interaction
-- Email arrives with Market Pulse + buy candidates (count depends on IBD content that day)
+- Script runs at 6 AM every Monday with no terminal interaction
+- Email arrives with Market Pulse + buy candidates (count depends on eIBD content that week)
 - PDF magic-byte validation rejects non-PDF downloads before Claude is called
 - Claude output validated against DigestSchema (Pydantic) before email is sent
 - `ticker` field validated `^[A-Z]{1,5}$` — satisfies project ticker allowlist security invariant
@@ -251,4 +262,4 @@ The prompt instructs Claude explicitly:
 - Failure always produces alert email or Task Scheduler exit-code notification — never silent
 - No credentials appear in source code or log files
 - `playwright install chromium` included in setup script
-- **First-week spot-check:** user verifies buy candidates against the source PDF for 3–5 days to confirm Claude extraction accuracy before relying on the digest for trading decisions
+- **First-run spot-check:** user verifies buy candidates against the source eIBD PDF for 2–3 weeks to confirm Claude extraction accuracy before relying on the digest for trading decisions
