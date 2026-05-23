@@ -152,3 +152,58 @@ def summarize(
                 messages.append({"role": "user", "content": CORRECTION_PROMPT})
 
     raise SummarizationError("Claude returned invalid JSON after 2 attempts")
+
+
+def render_subject(edition_date: str) -> str:
+    return f"IBD Weekly Digest — Week of {edition_date}"
+
+
+def render_html(digest: DigestSchema) -> str:
+    if digest.buy_candidates:
+        rows = ""
+        for c in digest.buy_candidates:
+            rows += f"""
+            <div class="candidate">
+              <div class="ticker-row"><strong>{c.ticker}</strong> — {c.company}</div>
+              <div class="meta">Buy point: <strong>${c.buy_point}</strong> &nbsp;|&nbsp; RS Rating: <strong>{c.rs_rating}</strong> &nbsp;|&nbsp; Composite: <strong>{c.composite_rating}</strong></div>
+              <div class="rationale">{c.rationale}</div>
+            </div>"""
+        candidates_html = f'<h2>Top Buy Candidates ({len(digest.buy_candidates)})</h2>{rows}'
+    else:
+        candidates_html = "<h2>Top Buy Candidates</h2><p>No buy candidates this week.</p>"
+
+    watch_items = "".join(f"<li>{w}</li>" for w in digest.stocks_to_watch)
+    avoid_items = "".join(f"<li>{a}</li>" for a in digest.avoid_extended)
+
+    return f"""<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  body {{ font-family: Arial, sans-serif; max-width: 700px; margin: 0 auto; padding: 20px; color: #222; }}
+  h1 {{ color: #c00; border-bottom: 2px solid #c00; }}
+  h2 {{ color: #333; margin-top: 24px; }}
+  .pulse-box {{ background: #f5f5f5; border-left: 4px solid #c00; padding: 12px; margin: 12px 0; }}
+  .candidate {{ border: 1px solid #ddd; border-radius: 4px; padding: 12px; margin: 10px 0; }}
+  .ticker-row {{ font-size: 1.1em; margin-bottom: 4px; }}
+  .meta {{ color: #555; font-size: 0.9em; margin-bottom: 6px; }}
+  .rationale {{ font-style: italic; }}
+  ul {{ padding-left: 20px; }}
+</style>
+</head>
+<body>
+<h1>IBD Weekly Digest — Week of {digest.date}</h1>
+<h2>Market Pulse</h2>
+<div class="pulse-box">
+  <strong>{digest.market_pulse}</strong><br>
+  Distribution days: {digest.distribution_days}
+</div>
+{candidates_html}
+<h2>Stocks to Watch</h2>
+<ul>{watch_items if watch_items else "<li>None highlighted this week.</li>"}</ul>
+<h2>Avoid / Extended</h2>
+<ul>{avoid_items if avoid_items else "<li>None flagged this week.</li>"}</ul>
+<hr>
+<p style="color:#999;font-size:0.8em;">Generated from eIBD edition. Verify candidates against source before trading.</p>
+</body>
+</html>"""
