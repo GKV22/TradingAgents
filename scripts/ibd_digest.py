@@ -300,7 +300,8 @@ def login_and_download_pdf(headless: bool = True) -> str:
     Raises RuntimeError on persistent failure.
     """
     from playwright.sync_api import sync_playwright
-    from playwright_stealth import stealth_sync
+    from playwright_stealth import Stealth
+    stealth = Stealth()
 
     username = _get_credential("IBD_USERNAME")
     password = _get_credential("IBD_PASSWORD")
@@ -316,7 +317,7 @@ def login_and_download_pdf(headless: bool = True) -> str:
                 browser = pw.chromium.launch(headless=headless)
                 context = browser.new_context(accept_downloads=True)
                 page = context.new_page()
-                stealth_sync(page)
+                stealth.apply_stealth_sync(page)
 
                 # Step 1: Login on investors.com
                 log.info("Navigating to investors.com for login...")
