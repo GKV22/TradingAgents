@@ -324,7 +324,7 @@ def login_and_download_pdf(headless: bool = True) -> str:
                 page.goto(LOGIN_URL, wait_until="networkidle")
 
                 # Fill login form — selectors may need adjustment if site changes
-                page.fill('input[name="email"], input[type="email"]', username)
+                page.fill('input[name="emailOrUsername"]', username)
                 page.fill('input[name="password"], input[type="password"]', password)
                 page.click('button[type="submit"], input[type="submit"]')
                 page.wait_for_load_state("networkidle")
