@@ -46,10 +46,12 @@ import tempfile
 
 def _make_test_pdf(text: str) -> str:
     """Create a minimal PDF with given text, return path."""
+    import os
     doc = fitz.open()
     page = doc.new_page()
     page.insert_text((72, 72), text)
-    path = tempfile.mktemp(suffix=".pdf")
+    fd, path = tempfile.mkstemp(suffix=".pdf")
+    os.close(fd)
     doc.save(path)
     doc.close()
     return path
@@ -73,7 +75,9 @@ def test_extract_text_multi_page():
     for i in range(3):
         page = doc.new_page()
         page.insert_text((72, 72), f"Page {i} content TICKER{i}")
-    path = tempfile.mktemp(suffix=".pdf")
+    fd, path = tempfile.mkstemp(suffix=".pdf")
+    import os
+    os.close(fd)
     doc.save(path)
     doc.close()
     try:
@@ -82,7 +86,6 @@ def test_extract_text_multi_page():
         assert "TICKER1" in text
         assert "TICKER2" in text
     finally:
-        import os
         os.unlink(path)
 
 
