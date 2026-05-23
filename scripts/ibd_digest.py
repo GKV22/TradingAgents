@@ -50,3 +50,13 @@ def make_logger(name: str = "ibd_digest") -> logging.Logger:
 
 
 log = make_logger()
+
+import fitz  # PyMuPDF
+
+
+def extract_text(pdf_path: str) -> str:
+    """Extract full text from all pages of a PDF."""
+    doc = fitz.open(pdf_path)
+    pages = [page.get_text() for page in doc]
+    doc.close()
+    return "\n".join(pages)
