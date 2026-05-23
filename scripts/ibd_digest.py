@@ -1,10 +1,12 @@
 """IBD Weekly Digest — automated eIBD PDF → Claude → Gmail pipeline."""
+import argparse
 import logging
 import logging.handlers
 import os
 import re
 import sys
 import tempfile
+import time
 from datetime import date
 from pathlib import Path
 
@@ -246,3 +248,164 @@ def send_alert(message: str) -> None:
         fallback = REPORTS_DIR / f"ibd_alert_{date.today().isoformat()}.html"
         fallback.write_text(f"<html><body><pre>{message}</pre></body></html>", encoding="utf-8")
         log.info("Alert written to %s", fallback)
+
+
+EIBD_URL = "https://research.investors.com/eIBD/#/"
+LOGIN_URL = "https://investors.com"
+DOWNLOAD_WAIT_SECONDS = 60
+RETRY_INTERVAL_SECONDS = 600   # 10 minutes
+MAX_RETRIES = 3                # 3 retries = 30 min total window
+
+
+def _is_valid_pdf(path: str) -> bool:
+    """Check magic bytes — real PDFs start with %PDF."""
+    try:
+        with open(path, "rb") as f:
+            return f.read(4) == b"%PDF"
+    except OSError:
+        return False
+
+
+def login_and_download_pdf(headless: bool = True) -> str:
+    """
+    Login to investors.com, navigate to eIBD SPA, download whole-edition PDF.
+    Returns local path to downloaded PDF.
+    Retries up to MAX_RETRIES times if PDF is not yet available.
+    Raises RuntimeError on persistent failure.
+    """
+    from playwright.sync_api import sync_playwright
+    from playwright_stealth import stealth_sync
+
+    username = os.environ["IBD_USERNAME"]
+    password = os.environ["IBD_PASSWORD"]
+
+    for attempt in range(MAX_RETRIES + 1):
+        if attempt > 0:
+            log.info("Retry %d/%d in %ds...", attempt, MAX_RETRIES, RETRY_INTERVAL_SECONDS)
+            time.sleep(RETRY_INTERVAL_SECONDS)
+
+        download_path = None
+        try:
+            with sync_playwright() as pw:
+                browser = pw.chromium.launch(headless=headless)
+                context = browser.new_context(accept_downloads=True)
+                page = context.new_page()
+                stealth_sync(page)
+
+                # Step 1: Login on investors.com
+                log.info("Navigating to investors.com for login...")
+                page.goto(LOGIN_URL, wait_until="networkidle")
+
+                # Fill login form — selectors may need adjustment if site changes
+                page.fill('input[name="email"], input[type="email"]', username)
+                page.fill('input[name="password"], input[type="password"]', password)
+                page.click('button[type="submit"], input[type="submit"]')
+                page.wait_for_load_state("networkidle")
+
+                if "login" in page.url.lower() or "signin" in page.url.lower():
+                    raise RuntimeError("Login failed — still on login page after submit")
+
+                log.info("Login succeeded. Navigating to eIBD...")
+
+                # Step 2: Navigate to eIBD SPA
+                page.goto(EIBD_URL, wait_until="networkidle")
+
+                # Step 3: Wait for JS eReader to initialise
+                page.wait_for_selector(
+                    'button:has-text("Download"), a:has-text("Download PDF"), [aria-label*="download" i]',
+                    timeout=30_000,
+                )
+                log.info("eReader loaded. Initiating download...")
+
+                # Step 4: Click download and capture file
+                with page.expect_download(timeout=DOWNLOAD_WAIT_SECONDS * 1000) as dl_info:
+                    page.click(
+                        'button:has-text("Download"), a:has-text("Download PDF"), [aria-label*="download" i]'
+                    )
+                download = dl_info.value
+
+                # Save to temp file
+                tmp = tempfile.mktemp(suffix=".pdf")
+                download.save_as(tmp)
+                download_path = tmp
+                context.close()
+                browser.close()
+
+            # Step 5: Validate magic bytes
+            if not _is_valid_pdf(download_path):
+                log.warning("Downloaded file is not a valid PDF (magic bytes check failed)")
+                if download_path:
+                    Path(download_path).unlink(missing_ok=True)
+                if attempt < MAX_RETRIES:
+                    continue
+                raise RuntimeError("Downloaded file is not a valid PDF after all retries")
+
+            log.info("Valid PDF downloaded: %s", download_path)
+            return download_path
+
+        except RuntimeError:
+            raise
+        except Exception as exc:
+            log.warning("Attempt %d failed: %s", attempt + 1, exc)
+            if download_path:
+                Path(download_path).unlink(missing_ok=True)
+            if attempt >= MAX_RETRIES:
+                raise RuntimeError(f"Failed to download eIBD PDF after {MAX_RETRIES + 1} attempts: {exc}") from exc
+
+    raise RuntimeError("Unreachable")
+
+
+def cleanup(pdf_path: str) -> None:
+    Path(pdf_path).unlink(missing_ok=True)
+    log.info("Cleaned up temp PDF: %s", pdf_path)
+
+
+def main(pdf_path: str | None = None) -> None:
+    """
+    Full pipeline. If pdf_path is given, skip browser download (manual mode).
+    Exits with code 1 on any failure.
+    """
+    from dotenv import load_dotenv
+    load_dotenv()
+
+    downloaded = False
+    path = pdf_path
+    html: str | None = None  # initialized so backup-write is safe if pipeline short-circuits
+
+    try:
+        if path is None:
+            path = login_and_download_pdf()
+            downloaded = True
+
+        text = extract_text(path)
+        digest = summarize(text)
+        html = render_html(digest)
+        subject = render_subject(digest.date)
+        send_email(html, subject)
+        log.info("Digest sent successfully.")
+
+    except Exception as exc:
+        log.error("Pipeline failed: %s", exc)
+        send_alert(str(exc))
+        if downloaded and path:
+            cleanup(path)
+        sys.exit(1)
+
+    if downloaded and path:
+        cleanup(path)
+
+    # Write HTML backup to reports/
+    if html is not None:
+        try:
+            backup = REPORTS_DIR / f"ibd_{date.today().isoformat()}.html"
+            backup.write_text(html, encoding="utf-8")
+            log.info("Backup written to %s", backup)
+        except Exception:
+            pass  # backup failure is non-fatal
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="IBD Weekly Digest")
+    parser.add_argument("--pdf", metavar="PATH", help="Skip browser; use local PDF file")
+    args = parser.parse_args()
+    main(pdf_path=args.pdf)
