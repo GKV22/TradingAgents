@@ -1,6 +1,7 @@
 """IBD Weekly Digest — automated eIBD PDF → Claude → Gmail pipeline."""
 import argparse
 from html import escape
+import keyring
 import logging
 import logging.handlers
 import os
@@ -18,13 +19,35 @@ LOGS_DIR.mkdir(exist_ok=True)
 REPORTS_DIR.mkdir(exist_ok=True)
 
 
+SERVICE_NAME = "ibd-digest"
+
+
+def _get_credential(key: str) -> str:
+    """Read credential from Windows Credential Manager. Raises RuntimeError if missing."""
+    value = keyring.get_password(SERVICE_NAME, key)
+    if not value:
+        raise RuntimeError(
+            f"Missing credential '{key}' in Windows Credential Manager. "
+            "Run: python scripts/setup_credentials.py"
+        )
+    return value
+
+
 def _build_secret_pattern() -> re.Pattern:
-    """Build regex from current env vars each call — no caching, safe for tests."""
+    """Build regex from current env vars + keyring secrets each call — no caching, safe for tests."""
     secret_keys = ["PASSWORD", "KEY", "TOKEN", "SECRET"]
     values = [
         v for k, v in os.environ.items()
         if any(sk in k.upper() for sk in secret_keys) and v.strip()
     ]
+    # Also redact keyring-stored secrets so they don't appear in logs
+    for cred_key in ("IBD_PASSWORD", "GMAIL_APP_PASSWORD"):
+        try:
+            v = keyring.get_password(SERVICE_NAME, cred_key)
+            if v and v.strip():
+                values.append(v)
+        except Exception:
+            pass
     if values:
         escaped = sorted([re.escape(v) for v in values], key=len, reverse=True)
         return re.compile("|".join(escaped))
@@ -223,8 +246,8 @@ from email.mime.text import MIMEText
 
 def send_email(html_body: str, subject: str) -> None:
     """Send HTML email via Gmail SMTP. Raises on failure."""
-    gmail_address = os.environ["GMAIL_ADDRESS"]
-    gmail_password = os.environ["GMAIL_APP_PASSWORD"]
+    gmail_address = _get_credential("GMAIL_ADDRESS")
+    gmail_password = _get_credential("GMAIL_APP_PASSWORD")
     msg = MIMEMultipart("alternative")
     msg["Subject"] = subject
     msg["From"] = gmail_address
@@ -277,8 +300,8 @@ def login_and_download_pdf(headless: bool = True) -> str:
     from playwright.sync_api import sync_playwright
     from playwright_stealth import stealth_sync
 
-    username = os.environ["IBD_USERNAME"]
-    password = os.environ["IBD_PASSWORD"]
+    username = _get_credential("IBD_USERNAME")
+    password = _get_credential("IBD_PASSWORD")
 
     for attempt in range(MAX_RETRIES + 1):
         if attempt > 0:
