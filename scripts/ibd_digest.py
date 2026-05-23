@@ -324,12 +324,15 @@ def login_and_download_pdf(headless: bool = True) -> str:
                     )
                 download = dl_info.value
 
-                # Save to temp file
-                tmp = tempfile.mktemp(suffix=".pdf")
-                download.save_as(tmp)
-                download_path = tmp
-                context.close()
-                browser.close()
+                # Save to temp file — mkstemp avoids TOCTOU race of deprecated mktemp()
+                fd, tmp = tempfile.mkstemp(suffix=".pdf")
+                os.close(fd)
+                try:
+                    download.save_as(tmp)
+                    download_path = tmp
+                finally:
+                    context.close()
+                    browser.close()
 
             # Step 5: Validate magic bytes
             if not _is_valid_pdf(download_path):
