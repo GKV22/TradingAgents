@@ -37,6 +37,13 @@ class DigestSchema(BaseModel):
     stocks_to_watch: list[str]
     avoid_extended: list[str]
 
+    @field_validator("date")
+    @classmethod
+    def validate_date(cls, v: str) -> str:
+        if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", v):
+            raise ValueError(f"date must be YYYY-MM-DD, got: {v!r}")
+        return v
+
     @field_validator("market_pulse")
     @classmethod
     def validate_pulse(cls, v: str) -> str:
