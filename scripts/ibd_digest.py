@@ -343,16 +343,12 @@ def login_and_download_pdf(headless: bool = True) -> str:
             log.info("Valid PDF downloaded: %s", download_path)
             return download_path
 
-        except RuntimeError:
-            raise
         except Exception as exc:
             log.warning("Attempt %d failed: %s", attempt + 1, exc)
             if download_path:
                 Path(download_path).unlink(missing_ok=True)
             if attempt >= MAX_RETRIES:
                 raise RuntimeError(f"Failed to download eIBD PDF after {MAX_RETRIES + 1} attempts: {exc}") from exc
-
-    raise RuntimeError("Unreachable")
 
 
 def cleanup(pdf_path: str) -> None:
