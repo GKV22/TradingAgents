@@ -147,3 +147,44 @@ def test_summarize_empty_buy_candidates_valid():
     mock_client = _mock_anthropic(no_buys)
     result = summarize("pdf text", client=mock_client)
     assert result.buy_candidates == []
+
+
+from scripts.ibd_schema import BuyCandidate
+
+def _make_digest(**overrides):
+    defaults = dict(
+        date="2026-05-19", market_pulse="Confirmed Uptrend", distribution_days=2,
+        buy_candidates=[BuyCandidate(ticker="NVDA", company="Nvidia Corp", buy_point="153.20", rs_rating=97, composite_rating=98, rationale="Breaking out. Strong earnings.")],
+        stocks_to_watch=["AAPL — forming handle"],
+        avoid_extended=["META — extended"],
+    )
+    defaults.update(overrides)
+    from scripts.ibd_schema import DigestSchema
+    return DigestSchema(**defaults)
+
+def test_render_html_contains_ticker():
+    from scripts.ibd_digest import render_html
+    html = render_html(_make_digest())
+    assert "NVDA" in html
+    assert "Nvidia Corp" in html
+
+def test_render_html_contains_market_pulse():
+    from scripts.ibd_digest import render_html
+    html = render_html(_make_digest())
+    assert "Confirmed Uptrend" in html
+    assert "2" in html
+
+def test_render_html_contains_buy_point():
+    from scripts.ibd_digest import render_html
+    html = render_html(_make_digest())
+    assert "153.20" in html
+
+def test_render_html_no_candidates_section():
+    from scripts.ibd_digest import render_html
+    html = render_html(_make_digest(buy_candidates=[]))
+    assert "No buy candidates" in html
+
+def test_render_html_subject_line():
+    from scripts.ibd_digest import render_subject
+    subject = render_subject("2026-05-19")
+    assert subject == "IBD Weekly Digest — Week of 2026-05-19"
