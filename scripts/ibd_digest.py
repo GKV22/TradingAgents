@@ -23,7 +23,7 @@ def _build_secret_pattern() -> re.Pattern:
         if any(sk in k.upper() for sk in secret_keys) and v.strip()
     ]
     if values:
-        escaped = [re.escape(v) for v in values]
+        escaped = sorted([re.escape(v) for v in values], key=len, reverse=True)
         return re.compile("|".join(escaped))
     return re.compile(r"(?!)")  # never matches
 
@@ -56,9 +56,8 @@ import fitz  # PyMuPDF
 
 def extract_text(pdf_path: str) -> str:
     """Extract full text from all pages of a PDF."""
-    doc = fitz.open(pdf_path)
-    pages = [page.get_text() for page in doc]
-    doc.close()
+    with fitz.open(pdf_path) as doc:
+        pages = [page.get_text() for page in doc]
     return "\n".join(pages)
 
 
@@ -118,8 +117,12 @@ def _extract_json(text: str) -> str:
     text = text.strip()
     if text.startswith("```"):
         lines = text.splitlines()
-        inner = lines[1:-1] if lines[-1].strip() == "```" else lines[1:]
-        text = "\n".join(inner).strip()
+        # Skip opening fence line; find closing fence; take everything between
+        close_idx = next(
+            (i for i, ln in enumerate(lines[1:], 1) if ln.strip() == "```"),
+            len(lines),
+        )
+        text = "\n".join(lines[1:close_idx]).strip()
     return text
 
 
@@ -140,8 +143,9 @@ def summarize(
             max_tokens=2048,
             messages=messages,
         )
-        raw = response.content[0].text
+        raw = ""
         try:
+            raw = response.content[0].text
             json_str = _extract_json(raw)
             data = json.loads(json_str)
             return DigestSchema(**data)
@@ -240,5 +244,5 @@ def send_alert(message: str) -> None:
     except Exception as exc:
         log.error("Alert email also failed: %s", exc)
         fallback = REPORTS_DIR / f"ibd_alert_{date.today().isoformat()}.html"
-        fallback.write_text(f"<html><body><pre>{message}</pre></body></html>")
+        fallback.write_text(f"<html><body><pre>{message}</pre></body></html>", encoding="utf-8")
         log.info("Alert written to %s", fallback)
