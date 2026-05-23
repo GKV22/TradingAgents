@@ -217,3 +217,45 @@ def test_send_email_never_sets_debug_level(monkeypatch):
         send_email("<html>body</html>", "Subject")
     for call in mock_smtp.method_calls:
         assert "set_debuglevel" not in str(call)
+
+
+def test_pdf_flag_bypasses_browser(tmp_path, monkeypatch):
+    """--pdf flag skips browser automation and reads local file."""
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    monkeypatch.setenv("GMAIL_ADDRESS", "test@gmail.com")
+    monkeypatch.setenv("GMAIL_APP_PASSWORD", "apppass")
+
+    # Create a minimal test PDF
+    import fitz
+    doc = fitz.open()
+    page = doc.new_page()
+    page.insert_text((72, 72), "Market Pulse: Confirmed Uptrend\nNVDA buy point 153")
+    pdf_path = str(tmp_path / "test.pdf")
+    doc.save(pdf_path)
+    doc.close()
+
+    # Patch summarize and send_email so we don't hit real APIs
+    from scripts import ibd_digest
+    calls = []
+
+    def fake_summarize(text, client=None):
+        from scripts.ibd_schema import DigestSchema
+        calls.append("summarize")
+        return DigestSchema(
+            date="2026-05-19",
+            market_pulse="Confirmed Uptrend",
+            distribution_days=0,
+            buy_candidates=[],
+            stocks_to_watch=[],
+            avoid_extended=[],
+        )
+
+    def fake_send_email(html, subject):
+        calls.append("send_email")
+
+    monkeypatch.setattr(ibd_digest, "summarize", fake_summarize)
+    monkeypatch.setattr(ibd_digest, "send_email", fake_send_email)
+
+    ibd_digest.main(pdf_path=pdf_path)
+    assert "summarize" in calls
+    assert "send_email" in calls
