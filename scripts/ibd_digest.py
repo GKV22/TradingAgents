@@ -13,6 +13,8 @@ from datetime import date
 from pathlib import Path
 
 ROOT = Path(__file__).parent.parent
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 LOGS_DIR = ROOT / "logs"
 REPORTS_DIR = ROOT / "reports"
 LOGS_DIR.mkdir(exist_ok=True)
