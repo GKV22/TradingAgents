@@ -84,3 +84,66 @@ def test_extract_text_multi_page():
     finally:
         import os
         os.unlink(path)
+
+
+import json
+from unittest.mock import MagicMock, patch
+
+VALID_JSON = json.dumps({
+    "date": "2026-05-19",
+    "market_pulse": "Confirmed Uptrend",
+    "distribution_days": 2,
+    "buy_candidates": [{"ticker": "NVDA", "company": "Nvidia", "buy_point": "153.20", "rs_rating": 97, "composite_rating": 98, "rationale": "Breaking out of flat base. Strong earnings growth."}],
+    "stocks_to_watch": ["AAPL — forming handle"],
+    "avoid_extended": ["META — extended 18%"],
+})
+
+def _mock_anthropic(response_text: str):
+    mock_client = MagicMock()
+    mock_msg = MagicMock()
+    mock_msg.content = [MagicMock(text=response_text)]
+    mock_client.messages.create.return_value = mock_msg
+    return mock_client
+
+def test_summarize_valid_json():
+    from scripts.ibd_digest import summarize
+    from scripts.ibd_schema import DigestSchema
+    mock_client = _mock_anthropic(f"```json\n{VALID_JSON}\n```")
+    result = summarize("some pdf text", client=mock_client)
+    assert isinstance(result, DigestSchema)
+    assert result.market_pulse == "Confirmed Uptrend"
+    assert len(result.buy_candidates) == 1
+    assert result.buy_candidates[0].ticker == "NVDA"
+
+def test_summarize_retries_on_invalid_json():
+    from scripts.ibd_digest import summarize
+    mock_client = MagicMock()
+    bad_response = MagicMock()
+    bad_response.content = [MagicMock(text="not json at all")]
+    good_response = MagicMock()
+    good_response.content = [MagicMock(text=VALID_JSON)]
+    mock_client.messages.create.side_effect = [bad_response, good_response]
+    result = summarize("pdf text", client=mock_client)
+    assert result.market_pulse == "Confirmed Uptrend"
+    assert mock_client.messages.create.call_count == 2
+
+def test_summarize_raises_after_two_bad_responses():
+    from scripts.ibd_digest import summarize, SummarizationError
+    mock_client = MagicMock()
+    mock_client.messages.create.return_value.content = [MagicMock(text="bad")]
+    with pytest.raises(SummarizationError):
+        summarize("pdf text", client=mock_client)
+
+def test_summarize_prompt_handles_curly_braces_in_text():
+    """Regression: prompt must use .replace() not .format() to avoid crash on { } in PDF text."""
+    from scripts.ibd_digest import summarize
+    mock_client = _mock_anthropic(VALID_JSON)
+    result = summarize("Stocks with {1} or {2} distribution days", client=mock_client)
+    assert result.market_pulse == "Confirmed Uptrend"
+
+def test_summarize_empty_buy_candidates_valid():
+    from scripts.ibd_digest import summarize
+    no_buys = json.dumps({"date": "2026-05-19", "market_pulse": "Market in Correction", "distribution_days": 5, "buy_candidates": [], "stocks_to_watch": [], "avoid_extended": []})
+    mock_client = _mock_anthropic(no_buys)
+    result = summarize("pdf text", client=mock_client)
+    assert result.buy_candidates == []
