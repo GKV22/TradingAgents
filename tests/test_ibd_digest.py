@@ -195,29 +195,37 @@ def test_render_html_subject_line():
 
 from unittest.mock import patch, MagicMock
 
-def test_send_email_uses_starttls(monkeypatch):
-    monkeypatch.setenv("GMAIL_ADDRESS", "test@gmail.com")
-    monkeypatch.setenv("GMAIL_APP_PASSWORD", "apppass")
+def test_send_email_uses_starttls():
     from scripts.ibd_digest import send_email
-    with patch("smtplib.SMTP") as mock_smtp_cls:
+
+    def fake_get_password(service, key):
+        return {"GMAIL_ADDRESS": "test@gmail.com", "GMAIL_APP_PASSWORD": "apppass"}.get(key)
+
+    with patch("keyring.get_password", side_effect=fake_get_password), \
+         patch("smtplib.SMTP") as mock_smtp_cls:
         mock_smtp = MagicMock()
         mock_smtp_cls.return_value.__enter__ = lambda s: mock_smtp
         mock_smtp_cls.return_value.__exit__ = MagicMock(return_value=False)
         send_email("<html>test</html>", "Test Subject")
+
     mock_smtp.starttls.assert_called_once()
     mock_smtp.login.assert_called_once()
     mock_smtp.sendmail.assert_called_once()
     mock_smtp.set_debuglevel.assert_not_called()
 
-def test_send_email_never_sets_debug_level(monkeypatch):
-    monkeypatch.setenv("GMAIL_ADDRESS", "test@gmail.com")
-    monkeypatch.setenv("GMAIL_APP_PASSWORD", "apppass")
+def test_send_email_never_sets_debug_level():
     from scripts.ibd_digest import send_email
-    with patch("smtplib.SMTP") as mock_smtp_cls:
+
+    def fake_get_password(service, key):
+        return {"GMAIL_ADDRESS": "test@gmail.com", "GMAIL_APP_PASSWORD": "apppass"}.get(key)
+
+    with patch("keyring.get_password", side_effect=fake_get_password), \
+         patch("smtplib.SMTP") as mock_smtp_cls:
         mock_smtp = MagicMock()
         mock_smtp_cls.return_value.__enter__ = lambda s: mock_smtp
         mock_smtp_cls.return_value.__exit__ = MagicMock(return_value=False)
         send_email("<html>body</html>", "Subject")
+
     for call in mock_smtp.method_calls:
         assert "set_debuglevel" not in str(call)
 
@@ -225,8 +233,6 @@ def test_send_email_never_sets_debug_level(monkeypatch):
 def test_pdf_flag_bypasses_browser(tmp_path, monkeypatch):
     """--pdf flag skips browser automation and reads local file."""
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
-    monkeypatch.setenv("GMAIL_ADDRESS", "test@gmail.com")
-    monkeypatch.setenv("GMAIL_APP_PASSWORD", "apppass")
 
     # Create a minimal test PDF
     import fitz

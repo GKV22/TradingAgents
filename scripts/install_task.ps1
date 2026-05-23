@@ -19,6 +19,10 @@ Write-Host "Installing Playwright chromium..." -ForegroundColor Cyan
 & $Python -m playwright install chromium
 if ($LASTEXITCODE -ne 0) { Write-Error "playwright install chromium failed"; exit 1 }
 
+# Store credentials in Windows Credential Manager (first-time setup)
+Write-Host "`nRunning credential setup..." -ForegroundColor Cyan
+& $Python scripts\setup_credentials.py
+
 # Remove existing task if present
 if (Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue) {
     Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false
