@@ -1,5 +1,6 @@
 """IBD Weekly Digest — automated eIBD PDF → Claude → Gmail pipeline."""
 import argparse
+from html import escape
 import logging
 import logging.handlers
 import os
@@ -121,7 +122,7 @@ def _extract_json(text: str) -> str:
         lines = text.splitlines()
         # Skip opening fence line; find closing fence; take everything between
         close_idx = next(
-            (i for i, ln in enumerate(lines[1:], 1) if ln.strip() == "```"),
+            (i for i, ln in enumerate(lines[1:], 1) if ln.strip().startswith("```")),
             len(lines),
         )
         text = "\n".join(lines[1:close_idx]).strip()
@@ -170,16 +171,16 @@ def render_html(digest: DigestSchema) -> str:
         for c in digest.buy_candidates:
             rows += f"""
             <div class="candidate">
-              <div class="ticker-row"><strong>{c.ticker}</strong> — {c.company}</div>
+              <div class="ticker-row"><strong>{c.ticker}</strong> — {escape(c.company)}</div>
               <div class="meta">Buy point: <strong>${c.buy_point}</strong> &nbsp;|&nbsp; RS Rating: <strong>{c.rs_rating}</strong> &nbsp;|&nbsp; Composite: <strong>{c.composite_rating}</strong></div>
-              <div class="rationale">{c.rationale}</div>
+              <div class="rationale">{escape(c.rationale)}</div>
             </div>"""
         candidates_html = f'<h2>Top Buy Candidates ({len(digest.buy_candidates)})</h2>{rows}'
     else:
         candidates_html = "<h2>Top Buy Candidates</h2><p>No buy candidates this week.</p>"
 
-    watch_items = "".join(f"<li>{w}</li>" for w in digest.stocks_to_watch)
-    avoid_items = "".join(f"<li>{a}</li>" for a in digest.avoid_extended)
+    watch_items = "".join(f"<li>{escape(w)}</li>" for w in digest.stocks_to_watch)
+    avoid_items = "".join(f"<li>{escape(a)}</li>" for a in digest.avoid_extended)
 
     return f"""<!DOCTYPE html>
 <html>
@@ -246,7 +247,7 @@ def send_alert(message: str) -> None:
     except Exception as exc:
         log.error("Alert email also failed: %s", exc)
         fallback = REPORTS_DIR / f"ibd_alert_{date.today().isoformat()}.html"
-        fallback.write_text(f"<html><body><pre>{message}</pre></body></html>", encoding="utf-8")
+        fallback.write_text(f"<html><body><pre>{escape(message)}</pre></body></html>", encoding="utf-8")
         log.info("Alert written to %s", fallback)
 
 
@@ -327,9 +328,9 @@ def login_and_download_pdf(headless: bool = True) -> str:
                 # Save to temp file — mkstemp avoids TOCTOU race of deprecated mktemp()
                 fd, tmp = tempfile.mkstemp(suffix=".pdf")
                 os.close(fd)
+                download_path = tmp  # set before save_as so cleanup finds it if save_as raises
                 try:
                     download.save_as(tmp)
-                    download_path = tmp
                 finally:
                     context.close()
                     browser.close()

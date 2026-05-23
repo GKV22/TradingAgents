@@ -25,7 +25,7 @@ class BuyCandidate(BaseModel):
     @field_validator("buy_point")
     @classmethod
     def validate_buy_point(cls, v: str) -> str:
-        if not re.fullmatch(r"\d+(\.\d{1,2})?", v):
+        if not re.fullmatch(r"[1-9]\d*(\.\d{1,2})?", v):
             raise ValueError(f"buy_point must be a single decimal number (e.g. '153.20'), got: {v!r}")
         return v
 
