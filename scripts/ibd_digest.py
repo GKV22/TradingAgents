@@ -60,3 +60,95 @@ def extract_text(pdf_path: str) -> str:
     pages = [page.get_text() for page in doc]
     doc.close()
     return "\n".join(pages)
+
+
+import anthropic as anthropic_sdk
+import json
+
+from scripts.ibd_schema import DigestSchema
+
+SUMMARIZE_PROMPT = """\
+You are extracting structured investment data from an Investor's Business Daily (IBD) weekly edition.
+
+Return ONLY valid JSON matching this exact schema — no prose, no markdown fences, no extra keys:
+
+{
+  "date": "YYYY-MM-DD",
+  "market_pulse": "<exactly one of: Confirmed Uptrend | Uptrend Under Pressure | Market in Correction>",
+  "distribution_days": <integer >= 0>,
+  "buy_candidates": [
+    {
+      "ticker": "<1-5 uppercase letters only, e.g. NVDA>",
+      "company": "<company name>",
+      "buy_point": "<single decimal number, no $ sign, no ranges, e.g. 153.20>",
+      "rs_rating": <integer 1-99>,
+      "composite_rating": <integer 1-99>,
+      "rationale": "<exactly 2 sentences from IBD commentary>"
+    }
+  ],
+  "stocks_to_watch": ["<TICKER — brief note>"],
+  "avoid_extended": ["<TICKER — brief note>"]
+}
+
+Rules:
+- buy_candidates: only stocks IBD explicitly recommends buying NOW (max 8)
+- If a stock's RS or Composite rating is unavailable, omit it from buy_candidates entirely
+- ticker: 1-5 uppercase letters only — no dots, slashes, or numbers
+- buy_point: single decimal number only (e.g. "153.20") — no "$", no ranges like "153-155"
+- market_pulse: must be exactly one of the three strings above, verbatim
+- If IBD has no buy candidates this week, return an empty array for buy_candidates
+
+IBD EDITION TEXT:
+{text}
+"""
+
+CORRECTION_PROMPT = """\
+Your previous response was not valid JSON or did not match the required schema.
+Return ONLY the JSON object — no explanation, no markdown, no extra text.
+Schema reminder: date, market_pulse (exact string), distribution_days, buy_candidates (list), stocks_to_watch (list), avoid_extended (list).
+"""
+
+
+class SummarizationError(Exception):
+    pass
+
+
+def _extract_json(text: str) -> str:
+    """Strip markdown fences if present, return raw JSON string."""
+    text = text.strip()
+    if text.startswith("```"):
+        lines = text.splitlines()
+        inner = lines[1:-1] if lines[-1].strip() == "```" else lines[1:]
+        text = "\n".join(inner).strip()
+    return text
+
+
+def summarize(
+    text: str,
+    client: anthropic_sdk.Anthropic | None = None,
+) -> DigestSchema:
+    """Call Claude, parse JSON, validate with Pydantic. Retry once on failure."""
+    if client is None:
+        client = anthropic_sdk.Anthropic()
+
+    # Use replace() not format() — prompt contains literal {} JSON braces that would crash format()
+    messages = [{"role": "user", "content": SUMMARIZE_PROMPT.replace("{text}", text)}]
+
+    for attempt in range(2):
+        response = client.messages.create(
+            model="claude-sonnet-4-6",
+            max_tokens=2048,
+            messages=messages,
+        )
+        raw = response.content[0].text
+        try:
+            json_str = _extract_json(raw)
+            data = json.loads(json_str)
+            return DigestSchema(**data)
+        except Exception as exc:
+            log.warning("summarize attempt %d failed: %s", attempt + 1, exc)
+            if attempt == 0:
+                messages.append({"role": "assistant", "content": raw})
+                messages.append({"role": "user", "content": CORRECTION_PROMPT})
+
+    raise SummarizationError("Claude returned invalid JSON after 2 attempts")
