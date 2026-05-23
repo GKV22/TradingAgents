@@ -207,3 +207,38 @@ def render_html(digest: DigestSchema) -> str:
 <p style="color:#999;font-size:0.8em;">Generated from eIBD edition. Verify candidates against source before trading.</p>
 </body>
 </html>"""
+
+
+import smtplib
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+
+
+def send_email(html_body: str, subject: str) -> None:
+    """Send HTML email via Gmail SMTP. Raises on failure."""
+    gmail_address = os.environ["GMAIL_ADDRESS"]
+    gmail_password = os.environ["GMAIL_APP_PASSWORD"]
+    msg = MIMEMultipart("alternative")
+    msg["Subject"] = subject
+    msg["From"] = gmail_address
+    msg["To"] = gmail_address
+    msg.attach(MIMEText(html_body, "html"))
+    with smtplib.SMTP("smtp.gmail.com", 587) as smtp:
+        smtp.ehlo()
+        smtp.starttls()
+        smtp.login(gmail_address, gmail_password)
+        smtp.sendmail(gmail_address, gmail_address, msg.as_string())
+    log.info("Email sent: %s", subject)
+
+
+def send_alert(message: str) -> None:
+    """Send plain-text alert email. Falls back to file if SMTP fails."""
+    subject = "IBD Digest ERROR"
+    html = f"<html><body><h2>IBD Digest Error</h2><pre>{message}</pre></body></html>"
+    try:
+        send_email(html, subject)
+    except Exception as exc:
+        log.error("Alert email also failed: %s", exc)
+        fallback = REPORTS_DIR / f"ibd_alert_{date.today().isoformat()}.html"
+        fallback.write_text(f"<html><body><pre>{message}</pre></body></html>")
+        log.info("Alert written to %s", fallback)

@@ -188,3 +188,32 @@ def test_render_html_subject_line():
     from scripts.ibd_digest import render_subject
     subject = render_subject("2026-05-19")
     assert subject == "IBD Weekly Digest — Week of 2026-05-19"
+
+
+from unittest.mock import patch, MagicMock
+
+def test_send_email_uses_starttls(monkeypatch):
+    monkeypatch.setenv("GMAIL_ADDRESS", "test@gmail.com")
+    monkeypatch.setenv("GMAIL_APP_PASSWORD", "apppass")
+    from scripts.ibd_digest import send_email
+    with patch("smtplib.SMTP") as mock_smtp_cls:
+        mock_smtp = MagicMock()
+        mock_smtp_cls.return_value.__enter__ = lambda s: mock_smtp
+        mock_smtp_cls.return_value.__exit__ = MagicMock(return_value=False)
+        send_email("<html>test</html>", "Test Subject")
+    mock_smtp.starttls.assert_called_once()
+    mock_smtp.login.assert_called_once()
+    mock_smtp.sendmail.assert_called_once()
+    mock_smtp.set_debuglevel.assert_not_called()
+
+def test_send_email_never_sets_debug_level(monkeypatch):
+    monkeypatch.setenv("GMAIL_ADDRESS", "test@gmail.com")
+    monkeypatch.setenv("GMAIL_APP_PASSWORD", "apppass")
+    from scripts.ibd_digest import send_email
+    with patch("smtplib.SMTP") as mock_smtp_cls:
+        mock_smtp = MagicMock()
+        mock_smtp_cls.return_value.__enter__ = lambda s: mock_smtp
+        mock_smtp_cls.return_value.__exit__ = MagicMock(return_value=False)
+        send_email("<html>body</html>", "Subject")
+    for call in mock_smtp.method_calls:
+        assert "set_debuglevel" not in str(call)
