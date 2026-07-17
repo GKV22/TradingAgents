@@ -60,3 +60,4 @@ schema_version,date,outbound_fewest_stops_price,outbound_fewest_stops_airline,ou
 2,2026-07-14,629,Air Europa,1,1785,629,Air Europa,1,1785,703,Qatar Airways,1,1895,703,Qatar Airways,1,1895,1893,SWISS,1,1850,1670,Condor,2,2580,1928,Condor,1,1550,1881,SWISS,2,1500
 2,2026-07-15,629,Air Europa,1,3070,629,Air Europa,1,3070,710,Qatar Airways,1,1895,710,Qatar Airways,1,1895,1893,SWISS,1,1850,1660,Condor,2,2660,1934,Condor,1,1550,1880,SWISS,2,1500
 2,2026-07-16,629,Air Europa,1,1785,629,Air Europa,1,1785,712,Qatar Airways,1,1895,712,Qatar Airways,1,1895,1893,SWISS,1,1850,1660,Condor,2,2660,2071,Emirates,1,1515,2071,Emirates,1,1515
+2,2026-07-17,629,Air Europa,1,3070,629,Air Europa,1,3070,702,Qatar Airways,1,1895,702,Qatar Airways,1,1895,1893,SWISS,1,1850,1670,Condor,2,2580,1980,SWISS,1,1410,1868,SWISS,2,1500
