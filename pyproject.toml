@@ -31,11 +31,7 @@ dependencies = [
     "tqdm>=4.67.1",
     "typing-extensions>=4.14.0",
     "yfinance>=1.4.1",
-    "playwright>=1.44.0",
-    "playwright-stealth>=1.0.6",
-    "pymupdf>=1.24.0",
     "pydantic>=2.0",
-    "keyring>=24.0.0",
 ]
 
 [project.optional-dependencies]
@@ -48,6 +44,14 @@ dev = [
 # stays lean: pip install "tradingagents[bedrock]".
 bedrock = [
     "langchain-aws>=1.5.0",
+]
+# IBD Weekly Digest script dependencies.
+ibd = [
+    "playwright>=1.44.0",
+    "playwright-stealth>=1.0.6",
+    "pymupdf>=1.24.0",
+    "keyring>=24.0.0",
+]
 
 [project.scripts]
 tradingagents = "cli.main:app"
