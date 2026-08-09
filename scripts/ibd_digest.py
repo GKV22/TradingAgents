@@ -1,16 +1,35 @@
 """IBD Weekly Digest — automated eIBD PDF → Claude → Gmail pipeline."""
+
+# Inject Windows certificate store so corporate/custom CAs are trusted
+try:
+    import truststore
+
+    truststore.inject_into_ssl()
+except ImportError:
+    pass  # truststore optional; falls back to certifi bundle
+
 import argparse
-from html import escape
-import keyring
+import asyncio
+import json
 import logging
 import logging.handlers
 import os
 import re
+import shutil
+import smtplib
 import sys
 import tempfile
 import time
 from datetime import date
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+from html import escape
 from pathlib import Path
+
+import anthropic as anthropic_sdk
+import keyring
+
+from scripts.ibd_schema import DigestSchema
 
 ROOT = Path(__file__).parent.parent
 if str(ROOT) not in sys.path:
@@ -39,8 +58,7 @@ def _build_secret_pattern() -> re.Pattern:
     """Build regex from current env vars + keyring secrets each call — no caching, safe for tests."""
     secret_keys = ["PASSWORD", "KEY", "TOKEN", "SECRET"]
     values = [
-        v for k, v in os.environ.items()
-        if any(sk in k.upper() for sk in secret_keys) and v.strip()
+        v for k, v in os.environ.items() if any(sk in k.upper() for sk in secret_keys) and v.strip()
     ]
     # Also redact keyring-stored secrets so they don't appear in logs
     for cred_key in ("IBD_PASSWORD", "GMAIL_APP_PASSWORD"):
@@ -79,20 +97,15 @@ def make_logger(name: str = "ibd_digest") -> logging.Logger:
 
 log = make_logger()
 
-import fitz  # PyMuPDF
-
 
 def extract_text(pdf_path: str) -> str:
     """Extract full text from all pages of a PDF."""
+    import fitz  # PyMuPDF — optional dep; import here to avoid E402 / missing-dep CI failure
+
     with fitz.open(pdf_path) as doc:
         pages = [page.get_text() for page in doc]
     return "\n".join(pages)
 
-
-import anthropic as anthropic_sdk
-import json
-
-from scripts.ibd_schema import DigestSchema
 
 SUMMARIZE_PROMPT = """\
 You are extracting structured investment data from an Investor's Business Daily (IBD) weekly edition.
@@ -154,6 +167,9 @@ def _extract_json(text: str) -> str:
     return text
 
 
+MAX_PDF_CHARS = 80_000  # ~20K tokens — well under free-tier 30K/min rate limit
+
+
 def summarize(
     text: str,
     client: anthropic_sdk.Anthropic | None = None,
@@ -162,15 +178,30 @@ def summarize(
     if client is None:
         client = anthropic_sdk.Anthropic()
 
-    # Use replace() not format() — prompt contains literal {} JSON braces that would crash format()
-    messages = [{"role": "user", "content": SUMMARIZE_PROMPT.replace("{text}", text)}]
+    # Truncate to stay under per-minute token rate limits
+    if len(text) > MAX_PDF_CHARS:
+        log.info("PDF text truncated from %d to %d chars", len(text), MAX_PDF_CHARS)
+        text = text[:MAX_PDF_CHARS]
 
-    for attempt in range(2):
-        response = client.messages.create(
-            model="claude-sonnet-4-6",
-            max_tokens=2048,
-            messages=messages,
-        )
+    # Use replace() not format() — prompt contains literal {} JSON braces that would crash format()
+    first_msg = {"role": "user", "content": SUMMARIZE_PROMPT.replace("{text}", text)}
+    messages = [first_msg]
+
+    RATE_LIMIT_WAIT = 65  # seconds — token bucket refills each minute
+    for attempt in range(4):
+        try:
+            response = client.messages.create(
+                model="claude-sonnet-4-6",
+                max_tokens=2048,
+                messages=messages,
+            )
+        except anthropic_sdk.RateLimitError as exc:
+            if attempt >= 3:
+                raise SummarizationError(f"Rate limit persisted after 4 attempts: {exc}") from exc
+            log.warning("Rate limit hit (attempt %d), waiting %ds...", attempt + 1, RATE_LIMIT_WAIT)
+            time.sleep(RATE_LIMIT_WAIT)
+            continue
+
         raw = ""
         try:
             raw = response.content[0].text
@@ -180,10 +211,17 @@ def summarize(
         except Exception as exc:
             log.warning("summarize attempt %d failed: %s", attempt + 1, exc)
             if attempt == 0:
-                messages.append({"role": "assistant", "content": raw})
-                messages.append({"role": "user", "content": CORRECTION_PROMPT})
+                # Retry: send only assistant reply + correction (not the full PDF again)
+                messages = [
+                    first_msg,
+                    {"role": "assistant", "content": raw},
+                    {"role": "user", "content": CORRECTION_PROMPT},
+                ]
+                time.sleep(5)  # brief pause before retry
+            elif attempt >= 2:
+                break
 
-    raise SummarizationError("Claude returned invalid JSON after 2 attempts")
+    raise SummarizationError("Claude returned invalid JSON after retries")
 
 
 def render_subject(edition_date: str) -> str:
@@ -200,7 +238,7 @@ def render_html(digest: DigestSchema) -> str:
               <div class="meta">Buy point: <strong>${c.buy_point}</strong> &nbsp;|&nbsp; RS Rating: <strong>{c.rs_rating}</strong> &nbsp;|&nbsp; Composite: <strong>{c.composite_rating}</strong></div>
               <div class="rationale">{escape(c.rationale)}</div>
             </div>"""
-        candidates_html = f'<h2>Top Buy Candidates ({len(digest.buy_candidates)})</h2>{rows}'
+        candidates_html = f"<h2>Top Buy Candidates ({len(digest.buy_candidates)})</h2>{rows}"
     else:
         candidates_html = "<h2>Top Buy Candidates</h2><p>No buy candidates this week.</p>"
 
@@ -241,11 +279,6 @@ def render_html(digest: DigestSchema) -> str:
 </html>"""
 
 
-import smtplib
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
-
-
 def send_email(html_body: str, subject: str) -> None:
     """Send HTML email via Gmail SMTP. Raises on failure."""
     gmail_address = _get_credential("GMAIL_ADDRESS")
@@ -272,15 +305,17 @@ def send_alert(message: str) -> None:
     except Exception as exc:
         log.error("Alert email also failed: %s", exc)
         fallback = REPORTS_DIR / f"ibd_alert_{date.today().isoformat()}.html"
-        fallback.write_text(f"<html><body><pre>{escape(message)}</pre></body></html>", encoding="utf-8")
+        fallback.write_text(
+            f"<html><body><pre>{escape(message)}</pre></body></html>", encoding="utf-8"
+        )
         log.info("Alert written to %s", fallback)
 
 
 EIBD_URL = "https://research.investors.com/eIBD/#/"
-LOGIN_URL = "https://investors.com"
+IBD_PROFILE_DIR = ROOT / "ibd-profile"
 DOWNLOAD_WAIT_SECONDS = 60
-RETRY_INTERVAL_SECONDS = 600   # 10 minutes
-MAX_RETRIES = 3                # 3 retries = 30 min total window
+RETRY_INTERVAL_SECONDS = 600  # 10 minutes
+MAX_RETRIES = 3  # 3 retries = 30 min total window
 
 
 def _is_valid_pdf(path: str) -> bool:
@@ -292,93 +327,285 @@ def _is_valid_pdf(path: str) -> bool:
         return False
 
 
-def login_and_download_pdf(headless: bool = True) -> str:
-    """
-    Login to investors.com, navigate to eIBD SPA, download whole-edition PDF.
-    Returns local path to downloaded PDF.
-    Retries up to MAX_RETRIES times if PDF is not yet available.
-    Raises RuntimeError on persistent failure.
-    """
-    from playwright.sync_api import sync_playwright
-    from playwright_stealth import Stealth
-    stealth = Stealth()
+def _force_chrome_pdf_download() -> None:
+    """Patch Chrome profile Preferences so PDFs are downloaded, not opened in viewer."""
+    import json as _json
 
-    username = _get_credential("IBD_USERNAME")
-    password = _get_credential("IBD_PASSWORD")
+    prefs_path = IBD_PROFILE_DIR / "Default" / "Preferences"
+    if not prefs_path.exists():
+        return
+    try:
+        prefs = _json.loads(prefs_path.read_text(encoding="utf-8"))
+        prefs.setdefault("plugins", {})["always_open_pdf_externally"] = True
+        prefs_path.write_text(_json.dumps(prefs), encoding="utf-8")
+        log.info("Chrome preference set: PDFs will download instead of opening in viewer")
+    except Exception as exc:
+        log.warning("Could not patch Chrome PDF preference: %s", exc)
+
+
+async def _download_pdf_async(headless: bool = False) -> str:
+    """Async implementation: launch real Chrome via nodriver, download eIBD PDF."""
+    import nodriver as uc
+
+    if not IBD_PROFILE_DIR.exists():
+        raise RuntimeError(
+            "No saved profile found. Run once manually: python scripts/ibd_save_session.py"
+        )
+
+    _force_chrome_pdf_download()
+
+    download_dir = Path(tempfile.mkdtemp(prefix="ibd_dl_"))
+    fd, final_path = tempfile.mkstemp(suffix=".pdf")
+    os.close(fd)
 
     for attempt in range(MAX_RETRIES + 1):
         if attempt > 0:
             log.info("Retry %d/%d in %ds...", attempt, MAX_RETRIES, RETRY_INTERVAL_SECONDS)
-            time.sleep(RETRY_INTERVAL_SECONDS)
+            await asyncio.sleep(RETRY_INTERVAL_SECONDS)
 
-        download_path = None
+        browser = None
         try:
-            with sync_playwright() as pw:
-                browser = pw.chromium.launch(headless=headless)
-                context = browser.new_context(accept_downloads=True)
-                page = context.new_page()
-                stealth.apply_stealth_sync(page)
+            browser = await uc.start(
+                user_data_dir=str(IBD_PROFILE_DIR),
+                headless=headless,
+                expert=True,  # forces shadow-roots open so JS can traverse them
+            )
+            tab = await browser.get(EIBD_URL)
 
-                # Step 1: Login on investors.com
-                log.info("Navigating to investors.com for login...")
-                page.goto(LOGIN_URL, wait_until="networkidle")
+            if "research.investors.com" not in tab.url:
+                raise RuntimeError("Session expired — run: python scripts/ibd_save_session.py")
 
-                # Fill login form — selectors may need adjustment if site changes
-                page.fill('input[name="emailOrUsername"]', username)
-                page.fill('input[name="password"], input[type="password"]', password)
-                page.click('button[type="submit"], input[type="submit"]')
-                page.wait_for_load_state("networkidle")
+            await tab.set_download_path(download_dir)
 
-                if "login" in page.url.lower() or "signin" in page.url.lower():
-                    raise RuntimeError("Login failed — still on login page after submit")
+            # Wait for SPA to render
+            log.info("Waiting for SPA to render...")
+            await asyncio.sleep(8)
 
-                log.info("Login succeeded. Navigating to eIBD...")
+            # Screenshot for debugging page layout / button positions
+            try:
+                dbg_shot = ROOT / "reports" / f"debug_eibd_{attempt}.png"
+                await tab.save_screenshot(str(dbg_shot))
+                log.info("Debug screenshot: %s", dbg_shot)
+            except Exception as _se:
+                log.warning("Screenshot failed: %s", _se)
 
-                # Step 2: Navigate to eIBD SPA
-                page.goto(EIBD_URL, wait_until="networkidle")
+            # Monitor network for PDF response — catches download regardless of Chrome save path
+            import nodriver.cdp.network as _cdp_net
 
-                # Step 3: Wait for JS eReader to initialise
-                page.wait_for_selector(
-                    'button:has-text("Download"), a:has-text("Download PDF"), [aria-label*="download" i]',
-                    timeout=30_000,
-                )
-                log.info("eReader loaded. Initiating download...")
+            captured_pdf_url: list[str] = []
 
-                # Step 4: Click download and capture file
-                with page.expect_download(timeout=DOWNLOAD_WAIT_SECONDS * 1000) as dl_info:
-                    page.click(
-                        'button:has-text("Download"), a:has-text("Download PDF"), [aria-label*="download" i]'
-                    )
-                download = dl_info.value
+            async def _on_response(
+                event: _cdp_net.ResponseReceived,
+                _cpdf: list = captured_pdf_url,
+            ) -> None:
+                url = event.response.url
+                mime = (event.response.mime_type or "").lower()
+                if "pdf" in mime or url.lower().endswith(".pdf"):
+                    log.info("PDF response captured: %s", url)
+                    _cpdf.append(url)
 
-                # Save to temp file — mkstemp avoids TOCTOU race of deprecated mktemp()
-                fd, tmp = tempfile.mkstemp(suffix=".pdf")
-                os.close(fd)
-                download_path = tmp  # set before save_as so cleanup finds it if save_as raises
+            tab.add_handler(_cdp_net.ResponseReceived, _on_response)
+
+            # Click the Newest Issue Download button specifically.
+            # eIBD uses Stencil.js (open shadow DOM) so JS can traverse shadow roots.
+            # Strategy 1: JS shadow-DOM walk — find Newest Issue card, click its Download btn.
+            # Strategy 2: nodriver find "Newest Issue!" → click the element's apply() click.
+            # Strategy 3: raw coordinate click derived from page layout.
+            log.info("Looking for newest issue Download button...")
+            before = set(download_dir.glob("*.pdf"))
+
+            _JS_CLICK_NEWEST = """
+            () => {
+                function walkAll(root) {
+                    const out = [];
+                    function recurse(el) {
+                        out.push(el);
+                        if (el.shadowRoot) recurse(el.shadowRoot);
+                        for (const c of (el.children || [])) recurse(c);
+                    }
+                    recurse(root);
+                    return out;
+                }
+
+                const all = walkAll(document);
+
+                // Find smallest element whose text is exactly "Newest Issue!"
+                let label = null;
+                for (const el of all) {
+                    if (el.nodeType !== 1) continue;
+                    const t = (el.textContent || '').trim();
+                    if (t === 'Newest Issue!' && el.children.length === 0) {
+                        label = el;
+                        break;
+                    }
+                }
+                if (!label) return 'no_label';
+
+                // Walk ancestors (crossing shadow root boundaries) looking for Download btn
+                function getParent(el) {
+                    if (el.parentElement) return el.parentElement;
+                    const root = el.getRootNode();
+                    return root && root.host ? root.host : null;
+                }
+
+                let node = label;
+                for (let depth = 0; depth < 15; depth++) {
+                    node = getParent(node);
+                    if (!node || node === document) break;
+                    // Search downward from this ancestor for a Download button/link
+                    for (const el of walkAll(node)) {
+                        if (el.nodeType !== 1) continue;
+                        const tag = (el.tagName || '').toUpperCase();
+                        const txt = (el.textContent || '').trim();
+                        const cls = (el.className || '').toLowerCase();
+                        const isClickable = tag === 'BUTTON' || tag === 'A' ||
+                            el.onclick || cls.includes('download') || cls.includes('btn');
+                        if (isClickable && txt.includes('Download') && txt.length < 30) {
+                            el.click();
+                            return 'clicked_' + tag;
+                        }
+                    }
+                }
+                return 'label_found_no_button';
+            }
+            """
+
+            clicked_directly = False
+            try:
+                js_result = await tab.evaluate(_JS_CLICK_NEWEST)
+                log.info("JS newest-issue click result: %s", js_result)
+                if js_result and js_result.startswith("clicked_"):
+                    clicked_directly = True
+            except Exception as exc:
+                log.warning("JS newest issue approach failed: %s", exc)
+
+            if not clicked_directly:
+                # Fallback: nodriver find nearest "Newest Issue!" element and use its position
+                btn = None
                 try:
-                    download.save_as(tmp)
-                finally:
-                    context.close()
-                    browser.close()
+                    newest_label = await tab.find("Newest Issue!", best_match=True, timeout=10)
+                    if newest_label:
+                        pos = await newest_label.get_position()
+                        log.info(
+                            "'Newest Issue!' at (%.0f, %.0f); coordinate clicking Download",
+                            pos.x,
+                            pos.y,
+                        )
+                        # Try multiple y-offsets to find the Download button in the card
+                        for y_offset in (250, 300, 200):
+                            await tab.mouse_click(pos.x, pos.y + y_offset)
+                            await asyncio.sleep(2)
+                            new_pdfs = set(download_dir.glob("*.pdf")) - before
+                            if new_pdfs:
+                                clicked_directly = True
+                                break
+                except Exception as exc:
+                    log.warning("Coordinate fallback failed: %s", exc)
 
-            # Step 5: Validate magic bytes
-            if not _is_valid_pdf(download_path):
-                log.warning("Downloaded file is not a valid PDF (magic bytes check failed)")
-                if download_path:
-                    Path(download_path).unlink(missing_ok=True)
-                if attempt < MAX_RETRIES:
-                    continue
-                raise RuntimeError("Downloaded file is not a valid PDF after all retries")
+            if not clicked_directly:
+                # Last resort: find any element with "Download" text
+                try:
+                    btn = await tab.find("Download", best_match=True, timeout=15)
+                    if btn and btn.tag_name == "#comment":
+                        btn = None
+                except Exception:
+                    btn = None
+                if btn:
+                    log.info("nodriver found element tag=%s text=%r", btn.tag_name, btn.text)
+                    try:
+                        btn_html = await btn.apply(
+                            "function() { return this.outerHTML + ' | parent: ' + (this.parentElement ? this.parentElement.outerHTML.slice(0,300) : 'none'); }"
+                        )
+                        log.info("Download element HTML: %s", str(btn_html)[:600])
+                    except Exception:
+                        pass
+                    await btn.click()
+                else:
+                    log.info("Falling back to coordinate click at (480, 581)...")
+                    await tab.mouse_click(480, 581)
 
-            log.info("Valid PDF downloaded: %s", download_path)
-            return download_path
+            await asyncio.sleep(3)
+            log.info("URL after click: %s", tab.url)
+
+            # Poll for file in download_dir OR capture via network handler
+            log.info("Waiting for download to complete...")
+            pdf_path: Path | None = None
+            for _ in range(DOWNLOAD_WAIT_SECONDS):
+                await asyncio.sleep(1)
+                new_pdfs = set(download_dir.glob("*.pdf")) - before
+                in_progress = set(download_dir.glob("*.crdownload"))
+                if new_pdfs and not in_progress:
+                    pdf_path = next(iter(new_pdfs))
+                    log.info("PDF found in download dir: %s", pdf_path)
+                    break
+
+            # Fallback: use network-captured PDF URL + browser cookies
+            if pdf_path is None and captured_pdf_url:
+                log.info(
+                    "File poll timed out; downloading via captured URL: %s", captured_pdf_url[0]
+                )
+                cookies_list = await browser.cookies.get_all()
+                cookie_header = "; ".join(f"{c.name}={c.value}" for c in cookies_list)
+                import urllib.request as _urlreq
+
+                req = _urlreq.Request(
+                    captured_pdf_url[0],
+                    headers={
+                        "Cookie": cookie_header,
+                        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                    },
+                )
+                with _urlreq.urlopen(req, timeout=60) as resp:
+                    Path(final_path).write_bytes(resp.read())
+                log.info("PDF downloaded via URL fallback")
+                return final_path  # skip shutil.move below
+
+            if pdf_path is None:
+                raise RuntimeError("Download timed out — no PDF received and no URL captured")
+
+            _stop = browser.stop()
+            if asyncio.iscoroutine(_stop):
+                await _stop
+            browser = None
+
+            if not _is_valid_pdf(str(pdf_path)):
+                raise RuntimeError("Downloaded file is not a valid PDF (magic bytes check failed)")
+
+            shutil.move(str(pdf_path), final_path)
+            log.info("Valid PDF downloaded: %s", final_path)
+            shutil.rmtree(str(download_dir), ignore_errors=True)
+            return final_path
 
         except Exception as exc:
-            log.warning("Attempt %d failed: %s", attempt + 1, exc)
-            if download_path:
-                Path(download_path).unlink(missing_ok=True)
+            import traceback as _tb
+
+            log.warning("Attempt %d failed: %s\n%s", attempt + 1, exc, _tb.format_exc())
+            if browser:
+                try:
+                    result = browser.stop()
+                    if asyncio.iscoroutine(result):
+                        await result
+                except Exception:
+                    pass
             if attempt >= MAX_RETRIES:
-                raise RuntimeError(f"Failed to download eIBD PDF after {MAX_RETRIES + 1} attempts: {exc}") from exc
+                Path(final_path).unlink(missing_ok=True)
+                shutil.rmtree(str(download_dir), ignore_errors=True)
+                raise RuntimeError(
+                    f"Failed to download eIBD PDF after {MAX_RETRIES + 1} attempts: {exc}"
+                ) from exc
+
+    raise RuntimeError("Unexpected exit from retry loop")
+
+
+def login_and_download_pdf(headless: bool = False) -> str:
+    """
+    Navigate to eIBD using persistent nodriver profile, download whole-edition PDF.
+    Returns local path to downloaded PDF.
+    Requires ibd-profile/ created by scripts/ibd_save_session.py.
+    Retries up to MAX_RETRIES times if PDF is not yet available.
+    Raises RuntimeError on persistent failure.
+    """
+    return asyncio.run(_download_pdf_async(headless=headless))
 
 
 def cleanup(pdf_path: str) -> None:
@@ -392,7 +619,8 @@ def main(pdf_path: str | None = None) -> None:
     Exits with code 1 on any failure.
     """
     from dotenv import load_dotenv
-    load_dotenv()
+
+    load_dotenv(override=True)
 
     downloaded = False
     path = pdf_path
