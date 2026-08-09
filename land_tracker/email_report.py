@@ -1,11 +1,11 @@
 """Land tracker email — HTML report builder and SMTP sender."""
+
 import html as html_module
 import smtplib
 import ssl
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from urllib.parse import quote_plus
-
 
 _RISK_COLORS = {"HIGH": "#ffcccc", "MEDIUM": "#fff3cc", "UNKNOWN": "#ffffff"}
 _ROAD_ICONS = {"YES": "✅", "NO": "🚫", "UNKNOWN": "❓"}
@@ -44,7 +44,7 @@ def _listing_row(listing) -> str:
 def _table(listings: list) -> str:
     if not listings:
         return "<p><em>None</em></p>"
-    rows = "\n".join(_listing_row(l) for l in listings)
+    rows = "\n".join(_listing_row(lst) for lst in listings)
     return f"""<table border="1" cellpadding="6" cellspacing="0">
   <tr>
     <th>Address</th><th>Price</th><th>Acres</th>
@@ -54,9 +54,16 @@ def _table(listings: list) -> str:
 </table>"""
 
 
-def build_html(new_listings: list, price_drops: list, gone_count: int,
-               all_active: list, location: str, today: str,
-               min_acres: float = 10.0, max_price: int = 250000) -> str:
+def build_html(
+    new_listings: list,
+    price_drops: list,
+    gone_count: int,
+    all_active: list,
+    location: str,
+    today: str,
+    min_acres: float = 10.0,
+    max_price: int = 250000,
+) -> str:
     search_url = html_module.escape(
         f"https://www.google.com/search?q={quote_plus('land for sale ' + location + ' SC acres farmland')}"
     )
@@ -83,10 +90,14 @@ def build_html(new_listings: list, price_drops: list, gone_count: int,
 <h2>💰 Price Drops ({len(price_drops)})</h2>
 <table border="1" cellpadding="6" cellspacing="0">
   <tr><th>Address</th><th>New Price</th><th>Old Price</th><th>Saving</th><th>Acres</th></tr>
-  {''.join(drop_rows)}
+  {"".join(drop_rows)}
 </table>"""
 
-    gone_html = f"<p><small>{gone_count} listing(s) removed since last run (sold/withdrawn).</small></p>" if gone_count else ""
+    gone_html = (
+        f"<p><small>{gone_count} listing(s) removed since last run (sold/withdrawn).</small></p>"
+        if gone_count
+        else ""
+    )
 
     return f"""<html><body>
 <h1>🌾 Land Tracker — {html_module.escape(location)} area — {html_module.escape(today)}</h1>
@@ -109,8 +120,9 @@ def build_html(new_listings: list, price_drops: list, gone_count: int,
 </body></html>"""
 
 
-def build_subject(new_count: int, drop_count: int, active_count: int,
-                  location: str, today: str) -> str:
+def build_subject(
+    new_count: int, drop_count: int, active_count: int, location: str, today: str
+) -> str:
     parts = []
     if new_count:
         parts.append(f"{new_count} new")

@@ -1,24 +1,60 @@
 """Land listing scoring — wetland risk and road access flagging, price/acreage filtering."""
+
 import dataclasses
 
-_WETLAND_HIGH = frozenset({
-    "wetland", "wetlands", "hydric", "marsh", "swamp", "floodway",
-    "bottomland", "tidal",
-})
-_WETLAND_MEDIUM = frozenset({
-    "flood zone", "floodplain", "flood plain", "100-year flood", "fema",
-    "ae zone", "ve zone", "x zone", "seasonal flooding", "seasonal wet",
-    "ponding", "standing water",
-})
-_ROAD_POSITIVE = frozenset({
-    "road frontage", "road access", "paved road", "county road", "state road",
-    "highway frontage", "deeded access", "easement access", "street frontage",
-    "hwy frontage", "road front",
-})
-_ROAD_NEGATIVE = frozenset({
-    "no road", "landlocked", "no access", "no frontage", "no road access",
-    "no legal access",
-})
+_WETLAND_HIGH = frozenset(
+    {
+        "wetland",
+        "wetlands",
+        "hydric",
+        "marsh",
+        "swamp",
+        "floodway",
+        "bottomland",
+        "tidal",
+    }
+)
+_WETLAND_MEDIUM = frozenset(
+    {
+        "flood zone",
+        "floodplain",
+        "flood plain",
+        "100-year flood",
+        "fema",
+        "ae zone",
+        "ve zone",
+        "x zone",
+        "seasonal flooding",
+        "seasonal wet",
+        "ponding",
+        "standing water",
+    }
+)
+_ROAD_POSITIVE = frozenset(
+    {
+        "road frontage",
+        "road access",
+        "paved road",
+        "county road",
+        "state road",
+        "highway frontage",
+        "deeded access",
+        "easement access",
+        "street frontage",
+        "hwy frontage",
+        "road front",
+    }
+)
+_ROAD_NEGATIVE = frozenset(
+    {
+        "no road",
+        "landlocked",
+        "no access",
+        "no frontage",
+        "no road access",
+        "no legal access",
+    }
+)
 
 
 def _wetland_risk(listing) -> str:
@@ -51,10 +87,10 @@ def score_listing(listing):
 def filter_and_score(listings: list, max_price: int, min_acres: float) -> list:
     """Filter by price/acreage, then score each listing."""
     result = []
-    for l in listings:
-        if l.price > max_price:
+    for lst in listings:
+        if lst.price > max_price:
             continue
-        if l.acres < min_acres:
+        if lst.acres < min_acres:
             continue
-        result.append(score_listing(l))
+        result.append(score_listing(lst))
     return result

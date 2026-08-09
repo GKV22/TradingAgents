@@ -1,8 +1,12 @@
 """SerpAPI Google Flights search — normalize raw API responses into Flight namedtuples."""
-from collections import namedtuple
-from serpapi import GoogleSearch
 
-Flight = namedtuple("Flight", ["price", "stops", "duration_min", "airline", "departs", "flight_number"], defaults=[""])
+from collections import namedtuple
+
+Flight = namedtuple(
+    "Flight",
+    ["price", "stops", "duration_min", "airline", "departs", "flight_number"],
+    defaults=[""],
+)
 
 
 def _normalize_response(response: dict) -> list:
@@ -13,30 +17,37 @@ def _normalize_response(response: dict) -> list:
         if price is None:
             continue
         try:
-            flights.append(Flight(
-                price=price,
-                stops=len(item.get("layovers") or []),
-                duration_min=item.get("total_duration") or 0,  # None → 0 (key present with null value)
-                airline=item["flights"][0]["airline"],
-                departs=item["flights"][0]["departure_airport"]["time"],
-                flight_number=item["flights"][0].get("flight_number", ""),
-            ))
+            flights.append(
+                Flight(
+                    price=price,
+                    stops=len(item.get("layovers") or []),
+                    duration_min=item.get("total_duration")
+                    or 0,  # None → 0 (key present with null value)
+                    airline=item["flights"][0]["airline"],
+                    departs=item["flights"][0]["departure_airport"]["time"],
+                    flight_number=item["flights"][0].get("flight_number", ""),
+                )
+            )
         except (IndexError, KeyError, TypeError):
             continue  # skip items where SerpAPI omits or nulls expected sub-fields
     return flights
 
 
-def search_flights(origin: str, destination: str, date: str, api_key: str, travel_class: int = 1) -> list:
+def search_flights(
+    origin: str, destination: str, date: str, api_key: str, travel_class: int = 1
+) -> list:
     params = {
         "engine": "google_flights",
         "departure_id": origin,
         "arrival_id": destination,
         "outbound_date": date,
-        "type": "2",       # one-way — required for per-leg pricing (default is round-trip bundled)
+        "type": "2",  # one-way — required for per-leg pricing (default is round-trip bundled)
         "travel_class": travel_class,  # 1=economy 2=premium_economy 3=business 4=first
         "currency": "USD",
         "hl": "en",
         "api_key": api_key,
     }
+    from serpapi import GoogleSearch
+
     search = GoogleSearch(params)
     return _normalize_response(search.get_dict())
