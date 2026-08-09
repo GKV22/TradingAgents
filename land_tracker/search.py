@@ -1,10 +1,8 @@
 """Land listing search — normalize raw API responses into LandListing dataclasses."""
+
 import hashlib
 import re
-from dataclasses import dataclass, field
-from typing import Optional
-
-from serpapi import GoogleSearch
+from dataclasses import dataclass
 
 
 @dataclass
@@ -16,11 +14,11 @@ class LandListing:
     description: str
     url: str
     source: str
-    wetland_risk: str = "UNKNOWN"   # populated by select.py
-    road_access: str = "UNKNOWN"    # populated by select.py
+    wetland_risk: str = "UNKNOWN"  # populated by select.py
+    road_access: str = "UNKNOWN"  # populated by select.py
 
 
-def _parse_price(raw) -> Optional[int]:
+def _parse_price(raw) -> int | None:
     if raw is None:
         return None
     if isinstance(raw, (int, float)):
@@ -32,7 +30,7 @@ def _parse_price(raw) -> Optional[int]:
         return None
 
 
-def _parse_acres(raw) -> Optional[float]:
+def _parse_acres(raw) -> float | None:
     """Extract numeric acreage from a value or string like '12.5 acres'."""
     if raw is None:
         return None
@@ -51,7 +49,7 @@ def _parse_acres(raw) -> Optional[float]:
     return None
 
 
-def _acres_from_description(description: str) -> Optional[float]:
+def _acres_from_description(description: str) -> float | None:
     """Last-resort: scan description for '12.5 acres' / '12.5 ac' patterns."""
     if not description:
         return None
@@ -90,11 +88,7 @@ def _normalize_serpapi(response: dict) -> list:
                 continue
 
             # Try dedicated acreage fields before falling back to description
-            raw_acres = (
-                prop.get("acres")
-                or prop.get("lot_size")
-                or prop.get("land_area")
-            )
+            raw_acres = prop.get("acres") or prop.get("lot_size") or prop.get("land_area")
             acres = _parse_acres(raw_acres)
             if acres is None:
                 acres = _acres_from_description(prop.get("description", ""))
@@ -104,31 +98,38 @@ def _normalize_serpapi(response: dict) -> list:
             address_raw = prop.get("address", "")
             if isinstance(address_raw, dict):
                 address = ", ".join(
-                    filter(None, [
-                        address_raw.get("street"),
-                        address_raw.get("city"),
-                        address_raw.get("state"),
-                        address_raw.get("zip"),
-                    ])
+                    filter(
+                        None,
+                        [
+                            address_raw.get("street"),
+                            address_raw.get("city"),
+                            address_raw.get("state"),
+                            address_raw.get("zip"),
+                        ],
+                    )
                 )
             else:
                 address = str(address_raw)
 
-            listings.append(LandListing(
-                listing_id=_make_listing_id(prop, address),
-                address=address,
-                price=price,
-                acres=acres,
-                description=prop.get("description", ""),
-                url=prop.get("link", ""),
-                source="serpapi/google_real_estate",
-            ))
+            listings.append(
+                LandListing(
+                    listing_id=_make_listing_id(prop, address),
+                    address=address,
+                    price=price,
+                    acres=acres,
+                    description=prop.get("description", ""),
+                    url=prop.get("link", ""),
+                    source="serpapi/google_real_estate",
+                )
+            )
         except Exception:
             continue  # skip malformed items
     return listings
 
 
 def _search_one_location(location: str, api_key: str) -> list:
+    from serpapi import GoogleSearch
+
     params = {
         "engine": "google_real_estate",
         "q": f"land farm acreage for sale {location} SC",
@@ -144,7 +145,9 @@ def _search_one_location(location: str, api_key: str) -> list:
     print(f"[DEBUG {location}] {len(props)} raw properties")
     if props:
         print(f"[DEBUG {location}] first prop keys: {list(props[0].keys())}")
-        print(f"[DEBUG {location}] first prop: price={props[0].get('price')} lot={props[0].get('lot_size')} acres={props[0].get('acres')}")
+        print(
+            f"[DEBUG {location}] first prop: price={props[0].get('price')} lot={props[0].get('lot_size')} acres={props[0].get('acres')}"
+        )
     return _normalize_serpapi(response)
 
 
@@ -168,7 +171,9 @@ def search_land_zillow(locations: list, api_key: str) -> list:
     # endpoint: /propertyExtendedSearch
     # params: location=locations[0], status_type=ForSale, home_type=LotOrLand
     # header: X-RapidAPI-Key: api_key
-    raise NotImplementedError("Zillow provider not yet implemented — add LAND_SEARCH_PROVIDER=zillow and a ZILLOW_API_KEY")
+    raise NotImplementedError(
+        "Zillow provider not yet implemented — add LAND_SEARCH_PROVIDER=zillow and a ZILLOW_API_KEY"
+    )
 
 
 def search_land(locations: list, api_key: str, provider: str = "serpapi") -> list:

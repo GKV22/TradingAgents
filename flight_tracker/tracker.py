@@ -1,10 +1,9 @@
 import csv
+import html as html_module
 import os
 import sys
 import tempfile
 from datetime import date
-
-import html as html_module
 
 from flight_tracker.config import get_config
 from flight_tracker.email_report import build_html, build_subject, send_email
