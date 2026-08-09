@@ -4,6 +4,7 @@ import os
 import webbrowser
 
 from dotenv import load_dotenv
+
 load_dotenv()
 load_dotenv(".env.enterprise", override=False)
 

@@ -1,4 +1,5 @@
 import re
+
 from pydantic import BaseModel, Field, field_validator
 
 VALID_MARKET_PULSE = {

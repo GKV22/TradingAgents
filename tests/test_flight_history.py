@@ -1,6 +1,8 @@
 import csv
 import unittest
+
 import pytest
+
 from flight_tracker.search import Flight
 from flight_tracker.tracker import _build_row, _update_history
 
@@ -73,7 +75,8 @@ class TestUpdateHistory(unittest.TestCase):
             return list(csv.DictReader(f))
 
     def test_appends_new_date(self):
-        import tempfile, os
+        import os
+        import tempfile
         with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False, newline="") as f:
             csv_path = f.name
             writer = csv.DictWriter(f, fieldnames=self.HEADER)
@@ -87,7 +90,8 @@ class TestUpdateHistory(unittest.TestCase):
             os.unlink(csv_path)
 
     def test_overwrites_existing_date(self):
-        import tempfile, os
+        import os
+        import tempfile
         f_pick = make_flight(price=999)
         with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False, newline="") as f:
             csv_path = f.name
@@ -104,7 +108,8 @@ class TestUpdateHistory(unittest.TestCase):
             os.unlink(csv_path)
 
     def test_preserves_other_dates(self):
-        import tempfile, os
+        import os
+        import tempfile
         with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False, newline="") as f:
             csv_path = f.name
             writer = csv.DictWriter(f, fieldnames=self.HEADER)

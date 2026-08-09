@@ -1,6 +1,6 @@
 """One-time setup: store IBD and Gmail credentials in Windows Credential Manager."""
+
 import getpass
-import sys
 
 import keyring
 
@@ -10,7 +10,11 @@ CREDENTIALS = [
     ("IBD_USERNAME", "investors.com email address", False),
     ("IBD_PASSWORD", "investors.com password", True),
     ("GMAIL_ADDRESS", "Gmail address (e.g. you@gmail.com)", False),
-    ("GMAIL_APP_PASSWORD", "Gmail App Password (16-char, from Google Account → Security → App passwords)", True),
+    (
+        "GMAIL_APP_PASSWORD",
+        "Gmail App Password (16-char, from Google Account → Security → App passwords)",
+        True,
+    ),
 ]
 
 
@@ -26,10 +30,7 @@ def main() -> None:
                 print(f"  Keeping existing {key}.")
                 continue
 
-        if secret:
-            value = getpass.getpass(f"{prompt}: ")
-        else:
-            value = input(f"{prompt}: ").strip()
+        value = getpass.getpass(f"{prompt}: ") if secret else input(f"{prompt}: ").strip()
 
         if not value:
             print(f"  Skipped {key} (empty input).")

@@ -1,6 +1,8 @@
 import unittest
+
 import pytest
-from flight_tracker.search import Flight, _normalize_response
+
+from flight_tracker.search import _normalize_response
 
 
 @pytest.mark.unit

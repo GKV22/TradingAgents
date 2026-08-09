@@ -1,4 +1,5 @@
 """FastAPI application — settings endpoints, SSE analysis stream, static file serving."""
+
 from __future__ import annotations
 
 import asyncio
@@ -6,9 +7,10 @@ import json
 import os
 import threading
 import time
+from collections.abc import AsyncGenerator
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import Any, AsyncGenerator
+from typing import Any
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -16,12 +18,12 @@ from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from web.settings import (
+    _SETTINGS_PATH as _DEFAULT_SETTINGS_PATH,
     DEFAULT_WEB_SETTINGS,
     build_run_config,
     load_settings,
     save_settings,
 )
-from web.settings import _SETTINGS_PATH as _DEFAULT_SETTINGS_PATH
 
 SETTINGS_PATH = _DEFAULT_SETTINGS_PATH
 _DIST = Path(__file__).parent / "frontend" / "dist"
@@ -44,6 +46,7 @@ _executor = ThreadPoolExecutor(max_workers=1)
 
 # ── Settings endpoints ─────────────────────────────────────────────────────
 
+
 @app.get("/api/settings")
 async def get_settings() -> dict:
     return load_settings(SETTINGS_PATH)
@@ -57,6 +60,7 @@ async def post_settings(body: dict) -> dict:
 
 # ── Stop endpoint ──────────────────────────────────────────────────────────
 
+
 @app.post("/api/stop")
 async def stop_analysis() -> dict:
     global _analysis_running
@@ -66,6 +70,7 @@ async def stop_analysis() -> dict:
 
 
 # ── Analyze endpoint (SSE) ─────────────────────────────────────────────────
+
 
 @app.post("/api/analyze")
 async def analyze(body: dict) -> StreamingResponse:
@@ -79,12 +84,15 @@ async def analyze(body: dict) -> StreamingResponse:
         raise HTTPException(status_code=422, detail="ticker and date are required")
 
     from datetime import date as date_type
+
     try:
         parsed = date_type.fromisoformat(date)
-    except ValueError:
-        raise HTTPException(status_code=422, detail=f"Invalid date format: {date}")
+    except ValueError as err:
+        raise HTTPException(status_code=422, detail=f"Invalid date format: {date}") from err
     if parsed > date_type.today():
-        raise HTTPException(status_code=422, detail=f"Analysis date cannot be in the future ({date})")
+        raise HTTPException(
+            status_code=422, detail=f"Analysis date cannot be in the future ({date})"
+        )
 
     web_config = load_settings(SETTINGS_PATH)
     run_config = build_run_config(web_config)
@@ -126,16 +134,12 @@ async def analyze(body: dict) -> StreamingResponse:
 
             if trace and not _cancel_flag.is_set():
                 final_state = trace[-1]
-                decision = graph.process_signal(
-                    final_state.get("final_trade_decision", "")
-                )
+                decision = graph.process_signal(final_state.get("final_trade_decision", ""))
                 loop.call_soon_threadsafe(
                     queue.put_nowait, {"type": "complete", "decision": decision}
                 )
         except Exception as exc:
-            loop.call_soon_threadsafe(
-                queue.put_nowait, {"type": "error", "message": str(exc)}
-            )
+            loop.call_soon_threadsafe(queue.put_nowait, {"type": "error", "message": str(exc)})
         finally:
             global _analysis_running
             _analysis_running = False
@@ -177,9 +181,14 @@ _SECTION_TITLES = {
     "sentiment_report": "Social Sentiment",
     "news_report": "News Analysis",
     "fundamentals_report": "Fundamentals Analysis",
-    "investment_plan": "Research Team Decision",
+    "bull_report": "Bull Researcher",
+    "bear_report": "Bear Researcher",
+    "investment_plan": "Research Manager Decision",
     "trader_investment_plan": "Trading Team Plan",
-    "final_trade_decision": "Portfolio Management Decision",
+    "aggressive_report": "Aggressive Analyst",
+    "conservative_report": "Conservative Analyst",
+    "neutral_report": "Neutral Analyst",
+    "final_trade_decision": "Portfolio Manager Decision",
 }
 
 # Module-level tracking state — cleared at the start of each _run() call
@@ -208,12 +217,14 @@ def _translate_chunk(
         has_report = bool(_analyst_reports.get(key))
         if has_report:
             if report_key not in _emitted_sections:
-                events.append({
-                    "type": "report_section",
-                    "section": report_key,
-                    "title": _SECTION_TITLES[report_key],
-                    "content": _analyst_reports[key],
-                })
+                events.append(
+                    {
+                        "type": "report_section",
+                        "section": report_key,
+                        "title": _SECTION_TITLES[report_key],
+                        "content": _analyst_reports[key],
+                    }
+                )
                 _emitted_sections.add(report_key)
             events.append({"type": "agent_status", "agent": agent_name, "status": "completed"})
         elif not found_active:
@@ -235,38 +246,58 @@ def _translate_chunk(
         if bull or bear:
             for agent in ("Bull Researcher", "Bear Researcher", "Research Manager"):
                 events.append({"type": "agent_status", "agent": agent, "status": "in_progress"})
-        content_parts = []
-        if bull:
-            content_parts.append(f"### Bull Researcher\n{bull}")
-        if bear:
-            content_parts.append(f"### Bear Researcher\n{bear}")
-        if judge:
-            content_parts.append(f"### Research Manager\n{judge}")
+        if judge and "investment_plan" not in _emitted_sections:
+            # Emit all research team sections together once judge has decided,
+            # so each section contains the complete accumulated history.
+            if bull:
+                events.append(
+                    {
+                        "type": "report_section",
+                        "section": "bull_report",
+                        "title": _SECTION_TITLES["bull_report"],
+                        "content": bull,
+                    }
+                )
+                _emitted_sections.add("bull_report")
+            if bear:
+                events.append(
+                    {
+                        "type": "report_section",
+                        "section": "bear_report",
+                        "title": _SECTION_TITLES["bear_report"],
+                        "content": bear,
+                    }
+                )
+                _emitted_sections.add("bear_report")
+            events.append(
+                {
+                    "type": "report_section",
+                    "section": "investment_plan",
+                    "title": _SECTION_TITLES["investment_plan"],
+                    "content": judge,
+                }
+            )
+            _emitted_sections.add("investment_plan")
             for agent in ("Bull Researcher", "Bear Researcher", "Research Manager"):
                 events.append({"type": "agent_status", "agent": agent, "status": "completed"})
             events.append({"type": "agent_status", "agent": "Trader", "status": "in_progress"})
-        if content_parts and judge and "investment_plan" not in _emitted_sections:
-            events.append({
-                "type": "report_section",
-                "section": "investment_plan",
-                "title": _SECTION_TITLES["investment_plan"],
-                "content": "\n\n".join(content_parts),
-            })
-            if judge:
-                _emitted_sections.add("investment_plan")
 
     # ── Trader ────────────────────────────────────────────────────────────
     if chunk.get("trader_investment_plan"):
         if "trader_investment_plan" not in _emitted_sections:
-            events.append({
-                "type": "report_section",
-                "section": "trader_investment_plan",
-                "title": _SECTION_TITLES["trader_investment_plan"],
-                "content": chunk["trader_investment_plan"],
-            })
+            events.append(
+                {
+                    "type": "report_section",
+                    "section": "trader_investment_plan",
+                    "title": _SECTION_TITLES["trader_investment_plan"],
+                    "content": chunk["trader_investment_plan"],
+                }
+            )
             _emitted_sections.add("trader_investment_plan")
         events.append({"type": "agent_status", "agent": "Trader", "status": "completed"})
-        events.append({"type": "agent_status", "agent": "Aggressive Analyst", "status": "in_progress"})
+        events.append(
+            {"type": "agent_status", "agent": "Aggressive Analyst", "status": "in_progress"}
+        )
 
     # ── Risk management ───────────────────────────────────────────────────
     if chunk.get("risk_debate_state"):
@@ -275,40 +306,80 @@ def _translate_chunk(
         con = (risk.get("conservative_history") or "").strip()
         neu = (risk.get("neutral_history") or "").strip()
         judge = (risk.get("judge_decision") or "").strip()
-        risk_parts = []
         if agg:
-            risk_parts.append(f"### Aggressive Analyst\n{agg}")
-            events.append({"type": "agent_status", "agent": "Aggressive Analyst", "status": "in_progress"})
+            events.append(
+                {"type": "agent_status", "agent": "Aggressive Analyst", "status": "in_progress"}
+            )
         if con:
-            risk_parts.append(f"### Conservative Analyst\n{con}")
-            events.append({"type": "agent_status", "agent": "Conservative Analyst", "status": "in_progress"})
+            events.append(
+                {"type": "agent_status", "agent": "Conservative Analyst", "status": "in_progress"}
+            )
         if neu:
-            risk_parts.append(f"### Neutral Analyst\n{neu}")
-            events.append({"type": "agent_status", "agent": "Neutral Analyst", "status": "in_progress"})
-        if judge:
-            risk_parts.append(f"### Portfolio Manager\n{judge}")
-            for agent in ("Aggressive Analyst", "Conservative Analyst", "Neutral Analyst", "Portfolio Manager"):
+            events.append(
+                {"type": "agent_status", "agent": "Neutral Analyst", "status": "in_progress"}
+            )
+        if judge and "final_trade_decision" not in _emitted_sections:
+            # Emit all risk team sections together once PM has decided,
+            # so each section contains the complete accumulated history.
+            if agg:
+                events.append(
+                    {
+                        "type": "report_section",
+                        "section": "aggressive_report",
+                        "title": _SECTION_TITLES["aggressive_report"],
+                        "content": agg,
+                    }
+                )
+                _emitted_sections.add("aggressive_report")
+            if con:
+                events.append(
+                    {
+                        "type": "report_section",
+                        "section": "conservative_report",
+                        "title": _SECTION_TITLES["conservative_report"],
+                        "content": con,
+                    }
+                )
+                _emitted_sections.add("conservative_report")
+            if neu:
+                events.append(
+                    {
+                        "type": "report_section",
+                        "section": "neutral_report",
+                        "title": _SECTION_TITLES["neutral_report"],
+                        "content": neu,
+                    }
+                )
+                _emitted_sections.add("neutral_report")
+            events.append(
+                {
+                    "type": "report_section",
+                    "section": "final_trade_decision",
+                    "title": _SECTION_TITLES["final_trade_decision"],
+                    "content": judge,
+                }
+            )
+            _emitted_sections.add("final_trade_decision")
+            for agent in (
+                "Aggressive Analyst",
+                "Conservative Analyst",
+                "Neutral Analyst",
+                "Portfolio Manager",
+            ):
                 events.append({"type": "agent_status", "agent": agent, "status": "completed"})
-        if risk_parts and judge and "final_trade_decision" not in _emitted_sections:
-            events.append({
-                "type": "report_section",
-                "section": "final_trade_decision",
-                "title": _SECTION_TITLES["final_trade_decision"],
-                "content": "\n\n".join(risk_parts),
-            })
-            if judge:
-                _emitted_sections.add("final_trade_decision")
 
     # ── Stats ─────────────────────────────────────────────────────────────
     s = stats_handler.get_stats()
-    events.append({
-        "type": "stats",
-        "llm_calls": s.get("llm_calls", 0),
-        "tool_calls": s.get("tool_calls", 0),
-        "tokens_in": s.get("tokens_in", 0),
-        "tokens_out": s.get("tokens_out", 0),
-        "elapsed_seconds": round(time.time() - start_time, 1),
-    })
+    events.append(
+        {
+            "type": "stats",
+            "llm_calls": s.get("llm_calls", 0),
+            "tool_calls": s.get("tool_calls", 0),
+            "tokens_in": s.get("tokens_in", 0),
+            "tokens_out": s.get("tokens_out", 0),
+            "elapsed_seconds": round(time.time() - start_time, 1),
+        }
+    )
 
     return events
 

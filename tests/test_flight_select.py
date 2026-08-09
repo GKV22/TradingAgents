@@ -1,5 +1,7 @@
 import unittest
+
 import pytest
+
 from flight_tracker.search import Flight
 from flight_tracker.select import select_picks
 

@@ -1,13 +1,20 @@
 import unittest
+
 import pytest
-from land_tracker.search import LandListing
+
 from land_tracker.email_report import build_html, build_subject
+from land_tracker.search import LandListing
 
 
-def make_listing(listing_id="l1", price=100000, acres=15.0,
-                 wetland_risk="UNKNOWN", road_access="YES",
-                 address="123 Farm Rd, Conway SC",
-                 description="Good farmland"):
+def make_listing(
+    listing_id="l1",
+    price=100000,
+    acres=15.0,
+    wetland_risk="UNKNOWN",
+    road_access="YES",
+    address="123 Farm Rd, Conway SC",
+    description="Good farmland",
+):
     return LandListing(
         listing_id=listing_id,
         address=address,
@@ -44,8 +51,8 @@ class TestBuildSubject(unittest.TestCase):
 @pytest.mark.unit
 class TestBuildHtml(unittest.TestCase):
     def test_new_listings_shown(self):
-        l = make_listing()
-        html = build_html([l], [], 0, [l], "29588", "2026-05-18")
+        lst = make_listing()
+        html = build_html([lst], [], 0, [lst], "29588", "2026-05-18")
         self.assertIn("123 Farm Rd", html)
         self.assertIn("$100,000", html)
         self.assertIn("15 acres", html)
@@ -60,18 +67,18 @@ class TestBuildHtml(unittest.TestCase):
         self.assertIn("≥10 acres", html)
 
     def test_high_wetland_gets_red_background(self):
-        l = make_listing(wetland_risk="HIGH")
-        html = build_html([l], [], 0, [l], "29588", "2026-05-18")
+        lst = make_listing(wetland_risk="HIGH")
+        html = build_html([lst], [], 0, [lst], "29588", "2026-05-18")
         self.assertIn("#ffcccc", html)
 
     def test_medium_wetland_gets_yellow_background(self):
-        l = make_listing(wetland_risk="MEDIUM")
-        html = build_html([l], [], 0, [l], "29588", "2026-05-18")
+        lst = make_listing(wetland_risk="MEDIUM")
+        html = build_html([lst], [], 0, [lst], "29588", "2026-05-18")
         self.assertIn("#fff3cc", html)
 
     def test_price_drop_section_shown(self):
-        l = make_listing(price=90000)
-        html = build_html([], [(l, 100000)], 0, [l], "29588", "2026-05-18")
+        lst = make_listing(price=90000)
+        html = build_html([], [(lst, 100000)], 0, [lst], "29588", "2026-05-18")
         self.assertIn("Price Drops", html)
         self.assertIn("$90,000", html)
         self.assertIn("$100,000", html)
@@ -81,8 +88,8 @@ class TestBuildHtml(unittest.TestCase):
         self.assertNotIn("Price Drops", html)
 
     def test_html_escapes_address(self):
-        l = make_listing(address='<script>alert("xss")</script>')
-        html = build_html([l], [], 0, [l], "29588", "2026-05-18")
+        lst = make_listing(address='<script>alert("xss")</script>')
+        html = build_html([lst], [], 0, [lst], "29588", "2026-05-18")
         self.assertNotIn("<script>", html)
 
     def test_search_link_present(self):

@@ -2,7 +2,9 @@ import csv
 import os
 import tempfile
 import unittest
+
 import pytest
+
 from land_tracker.search import LandListing
 from land_tracker.tracker import _diff, _load_history, _update_history
 

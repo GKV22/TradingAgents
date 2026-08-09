@@ -1,13 +1,23 @@
 import unittest
+
 import pytest
+
 from land_tracker.search import (
-    LandListing, _parse_price, _parse_acres, _acres_from_description,
-    _normalize_serpapi, _make_listing_id, _extract_props,
+    _acres_from_description,
+    _normalize_serpapi,
+    _parse_acres,
+    _parse_price,
 )
 
 
-def _make_prop(price=125000, lot_size="12.5 acres", address="123 Farm Rd, Conway, SC",
-               property_id="prop1", description="Beautiful farmland", link="https://example.com"):
+def _make_prop(
+    price=125000,
+    lot_size="12.5 acres",
+    address="123 Farm Rd, Conway, SC",
+    property_id="prop1",
+    description="Beautiful farmland",
+    link="https://example.com",
+):
     return {
         "price": price,
         "lot_size": lot_size,
@@ -72,10 +82,10 @@ class TestNormalizeSerpapi(unittest.TestCase):
         prop = _make_prop()
         listings = _normalize_serpapi({"properties": [prop]})
         self.assertEqual(len(listings), 1)
-        l = listings[0]
-        self.assertEqual(l.price, 125000)
-        self.assertAlmostEqual(l.acres, 12.5)
-        self.assertEqual(l.listing_id, "prop1")
+        lst = listings[0]
+        self.assertEqual(lst.price, 125000)
+        self.assertAlmostEqual(lst.acres, 12.5)
+        self.assertEqual(lst.listing_id, "prop1")
 
     def test_skips_missing_price(self):
         prop = _make_prop(price=None)
@@ -96,7 +106,9 @@ class TestNormalizeSerpapi(unittest.TestCase):
         self.assertEqual(listings[0].acres, 20.0)
 
     def test_dict_address_joined(self):
-        prop = _make_prop(address={"street": "123 Farm Rd", "city": "Conway", "state": "SC", "zip": "29526"})
+        prop = _make_prop(
+            address={"street": "123 Farm Rd", "city": "Conway", "state": "SC", "zip": "29526"}
+        )
         listings = _normalize_serpapi({"properties": [prop]})
         self.assertIn("Conway", listings[0].address)
 

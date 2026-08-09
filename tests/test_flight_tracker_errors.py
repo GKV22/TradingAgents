@@ -1,6 +1,8 @@
 import unittest
 from unittest.mock import patch
+
 import pytest
+
 from flight_tracker.tracker import _safe_search
 
 

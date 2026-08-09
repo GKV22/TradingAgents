@@ -1,7 +1,9 @@
 import unittest
+
 import pytest
-from flight_tracker.search import Flight
+
 from flight_tracker.email_report import build_html, build_subject
+from flight_tracker.search import Flight
 
 
 def make_flight(price=980, stops=1, duration_min=980, airline="SAA", departs="18:30", flight_number="SA 101"):

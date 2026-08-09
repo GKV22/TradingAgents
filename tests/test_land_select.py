@@ -1,11 +1,12 @@
 import unittest
+
 import pytest
+
 from land_tracker.search import LandListing
-from land_tracker.select import filter_and_score, score_listing, _wetland_risk, _road_access
+from land_tracker.select import _road_access, _wetland_risk, filter_and_score
 
 
-def make_listing(price=100000, acres=15.0, description="", address="123 Farm Rd",
-                 listing_id="l1"):
+def make_listing(price=100000, acres=15.0, description="", address="123 Farm Rd", listing_id="l1"):
     return LandListing(
         listing_id=listing_id,
         address=address,
@@ -20,51 +21,51 @@ def make_listing(price=100000, acres=15.0, description="", address="123 Farm Rd"
 @pytest.mark.unit
 class TestWetlandRisk(unittest.TestCase):
     def test_high_on_wetland_keyword(self):
-        l = make_listing(description="Beautiful wetland property")
-        self.assertEqual(_wetland_risk(l), "HIGH")
+        lst = make_listing(description="Beautiful wetland property")
+        self.assertEqual(_wetland_risk(lst), "HIGH")
 
     def test_high_on_marsh(self):
-        l = make_listing(description="50 acres including marsh areas")
-        self.assertEqual(_wetland_risk(l), "HIGH")
+        lst = make_listing(description="50 acres including marsh areas")
+        self.assertEqual(_wetland_risk(lst), "HIGH")
 
     def test_medium_on_flood_zone(self):
-        l = make_listing(description="Partially in flood zone AE")
-        self.assertEqual(_wetland_risk(l), "MEDIUM")
+        lst = make_listing(description="Partially in flood zone AE")
+        self.assertEqual(_wetland_risk(lst), "MEDIUM")
 
     def test_medium_on_fema(self):
-        l = make_listing(description="Check FEMA maps for flood designation")
-        self.assertEqual(_wetland_risk(l), "MEDIUM")
+        lst = make_listing(description="Check FEMA maps for flood designation")
+        self.assertEqual(_wetland_risk(lst), "MEDIUM")
 
     def test_unknown_when_no_signals(self):
-        l = make_listing(description="Prime farmland with road frontage")
-        self.assertEqual(_wetland_risk(l), "UNKNOWN")
+        lst = make_listing(description="Prime farmland with road frontage")
+        self.assertEqual(_wetland_risk(lst), "UNKNOWN")
 
     def test_high_takes_priority_over_medium(self):
-        l = make_listing(description="Wetland area in flood zone")
-        self.assertEqual(_wetland_risk(l), "HIGH")
+        lst = make_listing(description="Wetland area in flood zone")
+        self.assertEqual(_wetland_risk(lst), "HIGH")
 
     def test_scans_address_too(self):
-        l = make_listing(description="Nice property", address="Swamp Road, Conway SC")
-        self.assertEqual(_wetland_risk(l), "HIGH")
+        lst = make_listing(description="Nice property", address="Swamp Road, Conway SC")
+        self.assertEqual(_wetland_risk(lst), "HIGH")
 
 
 @pytest.mark.unit
 class TestRoadAccess(unittest.TestCase):
     def test_yes_on_road_frontage(self):
-        l = make_listing(description="150 ft of road frontage on county road")
-        self.assertEqual(_road_access(l), "YES")
+        lst = make_listing(description="150 ft of road frontage on county road")
+        self.assertEqual(_road_access(lst), "YES")
 
     def test_yes_on_paved_road(self):
-        l = make_listing(description="Paved road access to property")
-        self.assertEqual(_road_access(l), "YES")
+        lst = make_listing(description="Paved road access to property")
+        self.assertEqual(_road_access(lst), "YES")
 
     def test_no_on_landlocked(self):
-        l = make_listing(description="Landlocked parcel, requires easement")
-        self.assertEqual(_road_access(l), "NO")
+        lst = make_listing(description="Landlocked parcel, requires easement")
+        self.assertEqual(_road_access(lst), "NO")
 
     def test_unknown_when_not_mentioned(self):
-        l = make_listing(description="Great farmland, 20 acres")
-        self.assertEqual(_road_access(l), "UNKNOWN")
+        lst = make_listing(description="Great farmland, 20 acres")
+        self.assertEqual(_road_access(lst), "UNKNOWN")
 
 
 @pytest.mark.unit
@@ -82,13 +83,13 @@ class TestFilterAndScore(unittest.TestCase):
         self.assertEqual(result[0].acres, 15.0)
 
     def test_scores_wetland_risk(self):
-        l = make_listing(description="Property includes wetlands")
-        result = filter_and_score([l], max_price=250000, min_acres=10)
+        lst = make_listing(description="Property includes wetlands")
+        result = filter_and_score([lst], max_price=250000, min_acres=10)
         self.assertEqual(result[0].wetland_risk, "HIGH")
 
     def test_scores_road_access(self):
-        l = make_listing(description="County road frontage on all sides")
-        result = filter_and_score([l], max_price=250000, min_acres=10)
+        lst = make_listing(description="County road frontage on all sides")
+        result = filter_and_score([lst], max_price=250000, min_acres=10)
         self.assertEqual(result[0].road_access, "YES")
 
     def test_empty_input_returns_empty(self):
