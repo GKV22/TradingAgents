@@ -12,3 +12,4 @@ schema_version,date,outbound_fewest_stops_price,outbound_fewest_stops_airline,ou
 2,2026-08-17,757,Cathay Pacific,1,2100,757,Cathay Pacific,1,2100,618,Kenya Airways,1,1235,618,Kenya Airways,1,1235,2247,American,1,1785,2247,American,1,1785,1904,Condor,1,1550,1904,Condor,1,1550
 2,2026-08-18,757,Cathay Pacific,1,2100,757,Cathay Pacific,1,2100,616,Kenya Airways,1,1235,616,Kenya Airways,1,1235,1726,Cathay Pacific,1,2100,1726,Cathay Pacific,1,2100,1899,Condor,1,1550,1899,Condor,1,1550
 2,2026-08-19,858,Cathay Pacific,1,2100,858,Cathay Pacific,1,2100,616,Kenya Airways,1,1235,616,Kenya Airways,1,1235,1726,Cathay Pacific,1,2100,1726,Cathay Pacific,1,2100,1903,Condor,1,1550,1903,Condor,1,1550
+2,2026-08-20,837,Air Europa,1,1785,837,Air Europa,1,1785,623,Kenya Airways,1,1235,623,Kenya Airways,1,1235,1726,Cathay Pacific,1,2100,1726,Cathay Pacific,1,2100,1915,Condor,1,1550,1915,Condor,1,1550
