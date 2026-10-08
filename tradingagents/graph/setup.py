@@ -16,6 +16,7 @@ from tradingagents.agents import (
     create_neutral_debator,
     create_news_analyst,
     create_portfolio_manager,
+    create_report_critic,
     create_research_manager,
     create_sentiment_analyst,
     create_trader,
@@ -47,20 +48,16 @@ class GraphSetup:
 
     def __init__(
         self,
-        quick_thinking_llm: Any,
-        deep_thinking_llm: Any,
+        role_llms: dict[str, Any],
         tool_nodes: dict[str, ToolNode],
         conditional_logic: ConditionalLogic,
     ):
         """Initialize with required components."""
-        self.quick_thinking_llm = quick_thinking_llm
-        self.deep_thinking_llm = deep_thinking_llm
+        self.role_llms = role_llms
         self.tool_nodes = tool_nodes
         self.conditional_logic = conditional_logic
 
-    def setup_graph(
-        self, selected_analysts=("market", "social", "news", "fundamentals")
-    ):
+    def setup_graph(self, selected_analysts=("market", "social", "news", "fundamentals")):
         """Set up and compile the agent workflow graph.
 
         Args:
@@ -72,24 +69,26 @@ class GraphSetup:
         """
         plan = build_analyst_execution_plan(selected_analysts)
 
+        llms = self.role_llms
         analyst_factories = {
-            "market": lambda: create_market_analyst(self.quick_thinking_llm),
-            "social": lambda: create_sentiment_analyst(self.quick_thinking_llm),
-            "news": lambda: create_news_analyst(self.quick_thinking_llm),
-            "fundamentals": lambda: create_fundamentals_analyst(self.quick_thinking_llm),
+            "market": lambda: create_market_analyst(llms["analysts"]),
+            "social": lambda: create_sentiment_analyst(llms["analysts"]),
+            "news": lambda: create_news_analyst(llms["analysts"]),
+            "fundamentals": lambda: create_fundamentals_analyst(llms["analysts"]),
         }
 
         # Create researcher and manager nodes
-        bull_researcher_node = create_bull_researcher(self.quick_thinking_llm)
-        bear_researcher_node = create_bear_researcher(self.quick_thinking_llm)
-        research_manager_node = create_research_manager(self.deep_thinking_llm)
-        trader_node = create_trader(self.quick_thinking_llm)
+        bull_researcher_node = create_bull_researcher(llms["bull_researcher"])
+        bear_researcher_node = create_bear_researcher(llms["bear_researcher"])
+        research_manager_node = create_research_manager(llms["research_manager"])
+        trader_node = create_trader(llms["trader"])
 
         # Create risk analysis nodes
-        aggressive_analyst = create_aggressive_debator(self.quick_thinking_llm)
-        neutral_analyst = create_neutral_debator(self.quick_thinking_llm)
-        conservative_analyst = create_conservative_debator(self.quick_thinking_llm)
-        portfolio_manager_node = create_portfolio_manager(self.deep_thinking_llm)
+        aggressive_analyst = create_aggressive_debator(llms["debators"])
+        neutral_analyst = create_neutral_debator(llms["debators"])
+        conservative_analyst = create_conservative_debator(llms["debators"])
+        portfolio_manager_node = create_portfolio_manager(llms["portfolio_manager"])
+        report_critic_node = create_report_critic(llms["portfolio_manager"])
 
         # Create workflow
         workflow = StateGraph(AgentState)
@@ -109,6 +108,7 @@ class GraphSetup:
         workflow.add_node("Neutral Analyst", neutral_analyst)
         workflow.add_node("Conservative Analyst", conservative_analyst)
         workflow.add_node("Portfolio Manager", portfolio_manager_node)
+        workflow.add_node("Report Critic", report_critic_node)
 
         # Define edges
         # Start with the first analyst
@@ -151,6 +151,7 @@ class GraphSetup:
                 RISK_ANALYSIS_PATH_MAP,
             )
 
-        workflow.add_edge("Portfolio Manager", END)
+        workflow.add_edge("Portfolio Manager", "Report Critic")
+        workflow.add_edge("Report Critic", END)
 
         return workflow

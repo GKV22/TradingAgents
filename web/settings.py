@@ -1,4 +1,5 @@
 """Settings persistence and run-config builder for the web UI."""
+
 from __future__ import annotations
 
 import json
@@ -10,16 +11,24 @@ from tradingagents.default_config import DEFAULT_CONFIG
 _SETTINGS_PATH = Path.home() / ".tradingagents" / "web_config.json"
 
 PROVIDER_URLS: dict[str, str | None] = {
-    "openai":     "https://api.openai.com/v1",
-    "anthropic":  "https://api.anthropic.com/",
-    "xai":        "https://api.x.ai/v1",
-    "deepseek":   "https://api.deepseek.com",
-    "qwen":       "https://dashscope.aliyuncs.com/compatible-mode/v1",
-    "glm":        "https://open.bigmodel.cn/api/paas/v4/",
+    "openai": "https://api.openai.com/v1",
+    "anthropic": "https://api.anthropic.com/",
+    "xai": "https://api.x.ai/v1",
+    "deepseek": "https://api.deepseek.com",
+    "qwen": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+    "glm": "https://open.bigmodel.cn/api/paas/v4/",
     "openrouter": "https://openrouter.ai/api/v1",
-    "ollama":     "http://localhost:11434/v1",
-    "google":     None,
-    "azure":      None,
+    "perplexity": "https://api.perplexity.ai",
+    "ollama": "http://localhost:11434/v1",
+    "google": None,
+    "azure": None,
+}
+
+DEFAULT_ROLE_LLM = {
+    "provider": "openai",
+    "model": "gpt-4.1-mini",
+    "base_url": None,
+    "reasoning_effort": None,
 }
 
 DEFAULT_WEB_SETTINGS: dict[str, Any] = {
@@ -38,6 +47,15 @@ DEFAULT_WEB_SETTINGS: dict[str, Any] = {
         "technical_indicators": "yfinance",
         "fundamental_data": "yfinance",
         "news_data": "yfinance",
+    },
+    "agent_llms": {
+        "analysts": {**DEFAULT_ROLE_LLM, "model": "gpt-4.1-mini"},
+        "bull_researcher": {**DEFAULT_ROLE_LLM, "model": "gpt-4.1-mini"},
+        "bear_researcher": {**DEFAULT_ROLE_LLM, "model": "gpt-4.1-mini"},
+        "research_manager": {**DEFAULT_ROLE_LLM, "model": "gpt-4.1"},
+        "trader": {**DEFAULT_ROLE_LLM, "model": "gpt-4.1-mini"},
+        "debators": {**DEFAULT_ROLE_LLM, "model": "gpt-4.1-mini"},
+        "portfolio_manager": {**DEFAULT_ROLE_LLM, "model": "gpt-4.1"},
     },
 }
 

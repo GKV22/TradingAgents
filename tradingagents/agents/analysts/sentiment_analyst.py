@@ -91,8 +91,7 @@ def create_sentiment_analyst(llm):
                     # prompt, so tool-range wording would only invite a
                     # hallucinated tool call (#1130).
                     " Today's date is {current_date}; treat it as 'now' for all analysis. {instrument_context}"
-                    " " + NO_EXTERNAL_TOOLS +
-                    "\n{system_message}",
+                    " " + NO_EXTERNAL_TOOLS + "\n{system_message}",
                 ),
                 MessagesPlaceholder(variable_name="messages"),
             ]
@@ -158,23 +157,29 @@ Community discussion. Engagement signal via upvote score and comment count. Subr
 {reddit_block}
 <end_of_reddit>
 
-## How to analyze this data (best practices)
+## Signal hierarchy (apply strictly)
 
-1. **Read the StockTwits Bullish/Bearish ratio as a leading retail-sentiment signal.** A 70/30 bullish/bearish split is moderately bullish; ≥90/10 may indicate over-extension and contrarian risk; 50/50 is uncertainty. Sample size matters — base rates on the actual message count, not percentages alone.
+These three sources carry different evidentiary weight. Never collapse them into a single "sentiment score" that treats them equally.
 
-2. **Look for cross-source divergences.** If news framing is bearish but StockTwits is overwhelmingly bullish, that mismatch is itself a signal — it can mean retail is leaning into a thesis the news flow hasn't caught up to (or vice versa, that retail is chasing while institutions are cautious).
+**Tier 1 — News headlines (highest weight):** Events with named actors, dates, and dollar figures. Earnings announcements, rating changes, M&A, regulatory actions. These can move a stock; treat them as primary evidence.
 
-3. **Weight Reddit posts by engagement.** A 400-upvote / 200-comment thread reflects community attention; a 3-upvote post is noise. Read the body excerpts for context — the title alone often misleads.
+**Tier 2 — StockTwits (directional colour only, not thesis evidence):** Retail opinion counts. Useful for flagging crowd positioning or crowding risk, but a 70% bullish ratio is not a reason to buy. Never cite a StockTwits ratio as a standalone supporting fact. Report the ratio and note what it *might* indicate, but explicitly label it as noisy, unverified retail opinion. A small sample (< 20 messages) should be flagged as statistically meaningless and discarded from the score.
 
-4. **Distinguish opinion from event.** A news headline ("Nvidia announces $500M Corning deal") is an event; a StockTwits post ("buying NVDA, this is going to moon") is opinion. Both are inputs but should be weighted differently in your conclusions.
+**Tier 3 — Reddit (lowest weight, background noise):** Community discussion. Upvote counts measure attention, not accuracy. A highly upvoted thesis may be entirely wrong. Mention Reddit only if a post contains a verifiable claim or event not covered in Tier 1 news — do not use Reddit as independent corroboration of a thesis the news already supports.
 
-5. **Identify recurring narrative themes.** What topic keeps coming up across sources? That's the dominant narrative driving current sentiment.
+## How to analyze this data
 
-6. **Be honest about data limits.** If StockTwits returned only a handful of messages, or one or more sources returned an "<unavailable>" placeholder, the sentiment read is less robust — flag this explicitly in the `confidence` field and the narrative. If the sources are silent on a given subreddit, say so.
+1. **Lead with news events.** Your `overall_band` must be primarily driven by Tier 1. If news is neutral but StockTwits is bullish, report Neutral or Mixed — not Bullish.
 
-7. **Identify catalysts and risks** that emerge across sources — news of upcoming earnings, product launches, competitive threats, macro headlines, etc.
+2. **Cross-source divergences:** If news framing diverges from social sentiment, surface this explicitly as a positioning observation, not a directional call. Example: "Institutional news is cautious; retail StockTwits skews 68% bullish — this divergence may indicate retail is chasing."
 
-8. **Past sentiment is not predictive.** Frame your conclusions as signal for the trader to weigh alongside fundamentals and technicals, not as a price call.
+3. **Engagement ≠ conviction for Reddit.** A 400-upvote post is attention, not evidence. Read the body for verifiable claims only.
+
+4. **Confidence calibration is strict:** Set `confidence` to low if: Tier 1 news is absent or sparse; StockTwits has < 20 messages; Reddit had no relevant posts. High confidence requires substantive Tier 1 news.
+
+5. **Identify catalysts and risks** from Tier 1 only — earnings, product launches, competitive threats, regulatory events cited in news sources.
+
+6. **Past sentiment is not predictive.** Frame conclusions as background colour for the trader to weigh against fundamentals and technicals, not as a price call or standalone thesis driver.
 
 ## Output fields
 
@@ -201,6 +206,7 @@ def create_social_media_analyst(llm):
         Import :func:`create_sentiment_analyst` directly instead.
     """
     import warnings
+
     warnings.warn(
         "create_social_media_analyst is deprecated and will be removed in a "
         "future version. Use create_sentiment_analyst instead.",

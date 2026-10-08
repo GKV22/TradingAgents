@@ -1,0 +1,220 @@
+.policies-page {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 1.5rem 1rem;
+}
+
+.policy-subtitle {
+  color: #94a3b8;
+  font-size: 0.875rem;
+  margin: 0.5rem 0 1.25rem;
+  line-height: 1.5;
+}
+
+.action-banner {
+  background: #1e3a2f;
+  border: 1px solid #16a34a;
+  color: #4ade80;
+  border-radius: 6px;
+  padding: 0.5rem 0.875rem;
+  font-size: 0.875rem;
+  margin-bottom: 1rem;
+}
+
+/* ── Sub-tabs ─────────────────────────────────────────────────────────── */
+
+.policy-tabs {
+  display: flex;
+  gap: 0.25rem;
+  border-bottom: 1px solid #2d3148;
+  margin-bottom: 1.25rem;
+}
+
+.policy-tab-btn {
+  background: none;
+  border: none;
+  color: #94a3b8;
+  font-size: 0.875rem;
+  padding: 0.5rem 0.875rem;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  transition: color 0.15s;
+}
+
+.policy-tab-btn:hover { color: #e2e8f0; }
+.policy-tab-btn.active { color: #818cf8; border-bottom-color: #818cf8; }
+
+.badge {
+  background: #ea580c;
+  color: #fff;
+  border-radius: 99px;
+  font-size: 0.7rem;
+  padding: 0 0.4rem;
+  line-height: 1.4;
+  font-weight: 600;
+}
+
+.badge-green { background: #16a34a; }
+
+/* ── Policy cards ─────────────────────────────────────────────────────── */
+
+.policy-list { display: flex; flex-direction: column; gap: 0.875rem; }
+
+.policy-loading,
+.policy-empty {
+  color: #64748b;
+  font-size: 0.875rem;
+  padding: 1rem 0;
+}
+
+.policy-card {
+  background: #1a1d27;
+  border: 1px solid #2d3148;
+  border-radius: 8px;
+  padding: 0.875rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.policy-card.approved { border-color: #1e3a2f; }
+
+.policy-card-header {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  flex-wrap: wrap;
+}
+
+.severity-badge {
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  color: #fff;
+  padding: 0.15rem 0.45rem;
+  border-radius: 4px;
+}
+
+.policy-category {
+  font-size: 0.8rem;
+  color: #94a3b8;
+  text-transform: capitalize;
+}
+
+.policy-id {
+  font-size: 0.75rem;
+  font-family: monospace;
+  color: #475569;
+  margin-left: auto;
+}
+
+.policy-ticker {
+  font-size: 0.75rem;
+  color: #475569;
+}
+
+.policy-rule {
+  font-size: 0.875rem;
+  color: #e2e8f0;
+  line-height: 1.5;
+}
+
+.policy-detail {
+  font-size: 0.8rem;
+  color: #94a3b8;
+  line-height: 1.45;
+}
+
+.policy-scope {
+  font-size: 0.75rem;
+  color: #64748b;
+}
+
+.policy-actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.25rem;
+}
+
+.btn-approve {
+  background: #16a34a;
+  color: #fff;
+  border: none;
+  border-radius: 5px;
+  padding: 0.35rem 0.875rem;
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.btn-approve:hover { background: #15803d; }
+
+.btn-reject {
+  background: transparent;
+  color: #ef4444;
+  border: 1px solid #ef4444;
+  border-radius: 5px;
+  padding: 0.35rem 0.875rem;
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.btn-reject:hover { background: #ef4444; color: #fff; }
+
+/* ── Evaluation history table ─────────────────────────────────────────── */
+
+.eval-list { overflow-x: auto; }
+
+.eval-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.825rem;
+}
+
+.eval-table th {
+  text-align: left;
+  padding: 0.5rem 0.75rem;
+  color: #64748b;
+  border-bottom: 1px solid #2d3148;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.eval-table td {
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid #1e2235;
+  vertical-align: middle;
+}
+
+.eval-table tr:last-child td { border-bottom: none; }
+
+.run-id {
+  font-family: monospace;
+  font-size: 0.75rem;
+  color: #475569;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.verdict-badge {
+  font-weight: 600;
+  font-size: 0.8rem;
+  text-transform: capitalize;
+}
+
+@media (prefers-color-scheme: light) {
+  .policies-page .card { background: #fff; }
+  .policy-card { background: #f8fafc; border-color: #e2e8f0; }
+  .policy-card.approved { border-color: #bbf7d0; }
+  .policy-tabs { border-color: #e2e8f0; }
+  .policy-subtitle { color: #64748b; }
+  .eval-table th { color: #94a3b8; border-color: #e2e8f0; }
+  .eval-table td { border-color: #f1f5f9; }
+  .policy-id, .policy-ticker { color: #94a3b8; }
+  .run-id { color: #94a3b8; }
+}

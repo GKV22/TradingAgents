@@ -59,6 +59,7 @@ def get_language_instruction() -> str:
     report rather than a mix of languages.
     """
     from tradingagents.dataflows.config import get_config
+
     lang = get_config().get("output_language", "English")
     if lang.strip().lower() == "english":
         return ""
@@ -177,14 +178,20 @@ def get_instrument_context_from_state(state: Mapping[str, Any]) -> str:
     Falls back to a ticker-only context — with no network lookup — when the
     state was constructed without it (bare programmatic states, tests), so a
     consumer is never forced to make a yfinance call mid-graph.
+
+    Appends approved research quality policies (if any) so every agent in the
+    graph sees the same standing rules without individual prompt edits.
     """
     context = state.get("instrument_context")
-    if isinstance(context, str) and context.strip():
-        return context
-    return build_instrument_context(
-        str(state["company_of_interest"]),
-        state.get("asset_type", "stock"),
-    )
+    if not (isinstance(context, str) and context.strip()):
+        context = build_instrument_context(
+            str(state["company_of_interest"]),
+            state.get("asset_type", "stock"),
+        )
+    policies = state.get("research_policies")
+    if isinstance(policies, str) and policies.strip():
+        context = context.rstrip() + "\n\n" + policies
+    return context
 
 
 def create_msg_delete():
@@ -212,6 +219,3 @@ def create_msg_delete():
         return {"messages": removal_operations + [placeholder]}
 
     return delete_messages
-
-
-

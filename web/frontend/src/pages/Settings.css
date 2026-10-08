@@ -1,0 +1,79 @@
+.settings { display: flex; flex-direction: column; gap: 1.5rem; }
+
+.loading { color: #8892b0; padding: 2rem 0; }
+
+.roles-card { display: flex; flex-direction: column; gap: 0; }
+
+.role-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 1.5rem;
+  padding: 1rem 0;
+  border-bottom: 1px solid #2d3148;
+}
+
+.role-row:last-child { border-bottom: none; padding-bottom: 0; }
+.role-row:first-child { padding-top: 0; }
+
+.role-meta {
+  flex: 0 0 160px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-top: 24px;
+}
+
+.role-name { font-size: 0.875rem; font-weight: 600; color: #e2e8f0; }
+.role-desc { font-size: 0.72rem; color: #636d87; line-height: 1.4; }
+
+.role-fields {
+  flex: 1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: end;
+}
+
+.role-fields .field {
+  flex: 1;
+  min-width: 120px;
+}
+
+.role-fields .field:first-child { flex: 0 0 140px; }
+
+.field-url { grid-column: span 1; }
+
+.general-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+}
+
+.analysts-card {
+  display: flex;
+  gap: 1.5rem;
+  flex-wrap: wrap;
+}
+
+.check-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.875rem;
+  color: #e2e8f0;
+  cursor: pointer;
+}
+
+.check-label input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: #7c86ff;
+  cursor: pointer;
+}
+
+@media (max-width: 640px) {
+  .role-row { flex-direction: column; }
+  .role-meta { padding-top: 0; }
+  .role-fields { grid-template-columns: 1fr 1fr; }
+  .general-grid { grid-template-columns: 1fr; }
+}

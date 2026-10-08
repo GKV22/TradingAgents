@@ -150,6 +150,10 @@ activemq-data/
 # Environments
 .env
 .envrc
+
+# IBD browser session (contains auth cookies — never commit)
+ibd_session.json
+ibd-profile/
 .venv
 env/
 venv/
@@ -221,3 +225,4 @@ __marimo__/
 # Enterprise env file (secrets) and generated run reports
 .env.enterprise
 reports/*.html
+

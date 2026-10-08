@@ -104,13 +104,15 @@ class ResearchPlan(BaseModel):
 
 def render_research_plan(plan: ResearchPlan) -> str:
     """Render a ResearchPlan to markdown for storage and the trader's prompt context."""
-    return "\n".join([
-        f"**Recommendation**: {plan.recommendation.value}",
-        "",
-        f"**Rationale**: {plan.rationale}",
-        "",
-        f"**Strategic Actions**: {plan.strategic_actions}",
-    ])
+    return "\n".join(
+        [
+            f"**Recommendation**: {plan.recommendation.value}",
+            "",
+            f"**Rationale**: {plan.rationale}",
+            "",
+            f"**Strategic Actions**: {plan.strategic_actions}",
+        ]
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -173,10 +175,12 @@ def render_trader_proposal(proposal: TraderProposal) -> str:
         parts.extend(["", f"**Stop Loss**: {proposal.stop_loss}"])
     if proposal.position_sizing:
         parts.extend(["", f"**Position Sizing**: {proposal.position_sizing}"])
-    parts.extend([
-        "",
-        f"FINAL TRANSACTION PROPOSAL: **{proposal.action.value.upper()}**",
-    ])
+    parts.extend(
+        [
+            "",
+            f"FINAL TRANSACTION PROPOSAL: **{proposal.action.value.upper()}**",
+        ]
+    )
     return "\n".join(parts)
 
 
@@ -202,15 +206,44 @@ class PortfolioDecision(BaseModel):
     )
     executive_summary: str = Field(
         description=(
-            "A concise action plan covering entry strategy, position sizing, "
-            "key risk levels, and time horizon. Two to four sentences."
+            "Two to four sentences covering: final rating rationale, entry trigger "
+            "(price level + volume condition), technical invalidation level (derived "
+            "from ATR or named support zone — not an arbitrary tight stop), and "
+            "fundamental invalidation criteria (e.g. 'Q2 margins below X%')."
         ),
     )
     investment_thesis: str = Field(
         description=(
-            "Detailed reasoning anchored in specific evidence from the analysts' "
-            "debate. If prior lessons are referenced in the prompt context, "
-            "incorporate them; otherwise rely solely on the current analysis."
+            "Must follow this exact five-section structure in markdown:\n\n"
+            "## 1. Verified Facts\n"
+            "A table of confirmed values pulled directly from analyst reports: "
+            "current price, 50-day SMA, 200-day SMA, 52-week high/low, "
+            "trailing EPS (GAAP), forward EPS (source and basis), "
+            "forward P/E, PEG (with growth rate cited), revenue (TTM), "
+            "gross margin, operating margin, FCF, net debt, management guidance "
+            "(exact wording: raised/reiterated/cut with figures). "
+            "Label each value GAAP or adjusted, and its period.\n\n"
+            "## 2. Disputed Assumptions\n"
+            "List every claim in the debate that is an assumption not yet proven "
+            "by fetched data — e.g. margin recovery timing, forward EPS credibility, "
+            "inventory resolution, TAM growth rates. For each: state the assumption, "
+            "why it is uncertain, and what evidence would confirm or deny it.\n\n"
+            "## 3. Scenario Model\n"
+            "A table with Bear / Base / Bull columns. For each: EPS or EBITDA "
+            "assumption (state basis), valuation multiple applied (and why), "
+            "implied price target, and your probability weight. Weights must sum to 100%. "
+            "Include the probability-weighted expected value.\n\n"
+            "## 4. Decision\n"
+            "Rating, entry trigger (specific price and volume conditions), "
+            "position sizing method (reference the distance to invalidation, "
+            "not a fixed percentage), technical invalidation (ATR-based or named zone, "
+            "not a tight noise stop), fundamental invalidation (specific metrics and thresholds).\n\n"
+            "## 5. Data Quality Report\n"
+            "List any contradictions found across analyst reports (e.g. SMA labels "
+            "vs values, margin figures that do not reconcile), unverified assumptions "
+            "presented as facts, missing data (FRED unavailable, no consensus EPS, etc.), "
+            "and an overall reliability assessment. If core numbers do not reconcile, "
+            "set a DO-NOT-TRADE flag and explain why."
         ),
     )
     price_target: float | None = Field(
@@ -332,10 +365,12 @@ def render_sentiment_report(report: SentimentReport) -> str:
     narrative so the saved report is both human-readable and machine-parseable
     without regex.
     """
-    return "\n".join([
-        f"**Overall Sentiment:** **{report.overall_band.value}** "
-        f"(Score: {report.overall_score:.1f}/10)",
-        f"**Confidence:** {report.confidence.capitalize()}",
-        "",
-        report.narrative,
-    ])
+    return "\n".join(
+        [
+            f"**Overall Sentiment:** **{report.overall_band.value}** "
+            f"(Score: {report.overall_score:.1f}/10)",
+            f"**Confidence:** {report.confidence.capitalize()}",
+            "",
+            report.narrative,
+        ]
+    )

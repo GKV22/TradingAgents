@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 import threading
 import time
 from collections.abc import AsyncGenerator
@@ -133,8 +134,29 @@ async def analyze(body: dict) -> StreamingResponse:
                 trace.append(chunk)
 
             if trace and not _cancel_flag.is_set():
-                final_state = trace[-1]
-                decision = graph.process_signal(final_state.get("final_trade_decision", ""))
+                # Each chunk is a per-node delta — scan all to find key fields.
+                final_trade_decision = ""
+                analyst_review_text = ""
+                for chunk in trace:
+                    if chunk.get("final_trade_decision"):
+                        final_trade_decision = chunk["final_trade_decision"]
+                    if chunk.get("analyst_review"):
+                        analyst_review_text = chunk["analyst_review"]
+
+                decision = graph.process_signal(final_trade_decision)
+
+                # Post-analysis evaluation: parse critic YAML → log + policy candidates.
+                if analyst_review_text:
+                    run_id = f"{ticker}-{date}-{int(time.time())}"
+                    try:
+                        from web.evaluator import evaluate_run
+
+                        evaluate_run(
+                            run_id, ticker, date, analyst_review_text, final_trade_decision
+                        )
+                    except Exception:
+                        pass  # never let evaluation failure break the SSE stream
+
                 loop.call_soon_threadsafe(
                     queue.put_nowait, {"type": "complete", "decision": decision}
                 )
@@ -189,6 +211,7 @@ _SECTION_TITLES = {
     "conservative_report": "Conservative Analyst",
     "neutral_report": "Neutral Analyst",
     "final_trade_decision": "Portfolio Manager Decision",
+    "analyst_review": "Quality Review",
 }
 
 # Module-level tracking state — cleared at the start of each _run() call
@@ -233,8 +256,8 @@ def _translate_chunk(
         else:
             events.append({"type": "agent_status", "agent": agent_name, "status": "pending"})
 
-    # When all selected analysts are done, start research team
-    if not found_active and selected_analysts:
+    # When all selected analysts are done, start research team (only while research hasn't completed)
+    if not found_active and selected_analysts and "investment_plan" not in _emitted_sections:
         events.append({"type": "agent_status", "agent": "Bull Researcher", "status": "in_progress"})
 
     # ── Research team ─────────────────────────────────────────────────────
@@ -243,7 +266,7 @@ def _translate_chunk(
         bull = (debate.get("bull_history") or "").strip()
         bear = (debate.get("bear_history") or "").strip()
         judge = (debate.get("judge_decision") or "").strip()
-        if bull or bear:
+        if (bull or bear) and "investment_plan" not in _emitted_sections:
             for agent in ("Bull Researcher", "Bear Researcher", "Research Manager"):
                 events.append({"type": "agent_status", "agent": agent, "status": "in_progress"})
         if judge and "investment_plan" not in _emitted_sections:
@@ -294,10 +317,10 @@ def _translate_chunk(
                 }
             )
             _emitted_sections.add("trader_investment_plan")
-        events.append({"type": "agent_status", "agent": "Trader", "status": "completed"})
-        events.append(
-            {"type": "agent_status", "agent": "Aggressive Analyst", "status": "in_progress"}
-        )
+            events.append({"type": "agent_status", "agent": "Trader", "status": "completed"})
+            events.append(
+                {"type": "agent_status", "agent": "Aggressive Analyst", "status": "in_progress"}
+            )
 
     # ── Risk management ───────────────────────────────────────────────────
     if chunk.get("risk_debate_state"):
@@ -306,15 +329,15 @@ def _translate_chunk(
         con = (risk.get("conservative_history") or "").strip()
         neu = (risk.get("neutral_history") or "").strip()
         judge = (risk.get("judge_decision") or "").strip()
-        if agg:
+        if agg and "final_trade_decision" not in _emitted_sections:
             events.append(
                 {"type": "agent_status", "agent": "Aggressive Analyst", "status": "in_progress"}
             )
-        if con:
+        if con and "final_trade_decision" not in _emitted_sections:
             events.append(
                 {"type": "agent_status", "agent": "Conservative Analyst", "status": "in_progress"}
             )
-        if neu:
+        if neu and "final_trade_decision" not in _emitted_sections:
             events.append(
                 {"type": "agent_status", "agent": "Neutral Analyst", "status": "in_progress"}
             )
@@ -368,6 +391,23 @@ def _translate_chunk(
             ):
                 events.append({"type": "agent_status", "agent": agent, "status": "completed"})
 
+    # ── Report Critic ─────────────────────────────────────────────────────
+    if chunk.get("analyst_review") and "analyst_review" not in _emitted_sections:
+        review_full = chunk["analyst_review"]
+        # Strip the machine-readable YAML block — evaluator gets the full text separately
+        review_display = re.sub(r"```yaml\s*\n.*?```", "", review_full, flags=re.DOTALL).strip()
+        events.append({"type": "agent_status", "agent": "Report Critic", "status": "in_progress"})
+        events.append(
+            {
+                "type": "report_section",
+                "section": "analyst_review",
+                "title": _SECTION_TITLES["analyst_review"],
+                "content": review_display,
+            }
+        )
+        _emitted_sections.add("analyst_review")
+        events.append({"type": "agent_status", "agent": "Report Critic", "status": "completed"})
+
     # ── Stats ─────────────────────────────────────────────────────────────
     s = stats_handler.get_stats()
     events.append(
@@ -382,6 +422,50 @@ def _translate_chunk(
     )
 
     return events
+
+
+# ── Policy memory API ─────────────────────────────────────────────────────
+
+
+@app.get("/api/policies/candidates")
+async def get_policy_candidates() -> list:
+    from web.evaluator import list_candidates
+
+    return list_candidates()
+
+
+@app.get("/api/policies/approved")
+async def get_approved_policies() -> list:
+    from web.evaluator import list_approved
+
+    return list_approved()
+
+
+@app.post("/api/policies/{policy_id}/approve")
+async def approve_policy(policy_id: str) -> dict:
+    from web.evaluator import approve_candidate
+
+    ok = approve_candidate(policy_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail=f"Candidate not found: {policy_id}")
+    return {"status": "approved", "policy_id": policy_id}
+
+
+@app.post("/api/policies/{policy_id}/reject")
+async def reject_policy(policy_id: str) -> dict:
+    from web.evaluator import reject_candidate
+
+    ok = reject_candidate(policy_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail=f"Candidate not found: {policy_id}")
+    return {"status": "rejected", "policy_id": policy_id}
+
+
+@app.get("/api/evaluations")
+async def get_evaluations() -> list:
+    from web.evaluator import list_evaluations
+
+    return list_evaluations()
 
 
 # ── Static file serving (production) ──────────────────────────────────────

@@ -22,6 +22,7 @@ class Propagator:
         asset_type: str = "stock",
         past_context: str = "",
         instrument_context: str = "",
+        research_policies: str = "",
     ) -> dict[str, Any]:
         """Create the initial state for the agent graph.
 
@@ -30,6 +31,10 @@ class Propagator:
         ``TradingAgentsGraph.resolve_instrument_context``). When empty, agents
         fall back to ticker-only context via
         ``get_instrument_context_from_state``.
+
+        ``research_policies`` is the approved-policy block loaded from
+        ``policy_memory/policies/`` and appended to every agent's instrument
+        context so standing rules propagate without per-agent prompt edits.
         """
         return {
             "messages": [("human", company_name)],
@@ -38,6 +43,7 @@ class Propagator:
             "instrument_context": instrument_context,
             "trade_date": str(trade_date),
             "past_context": past_context,
+            "research_policies": research_policies,
             "investment_debate_state": InvestDebateState(
                 {
                     "bull_history": "",

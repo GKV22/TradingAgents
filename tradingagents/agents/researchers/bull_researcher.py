@@ -24,14 +24,14 @@ def create_bull_researcher(llm):
             else "Asset fundamentals report (may be unavailable for crypto)"
         )
 
-        prompt = f"""You are a Bull Analyst advocating for investing in the {target_label}. Your task is to build a strong, evidence-based case emphasizing growth potential, competitive advantages, and positive market indicators. Leverage the provided research and data to address concerns and counter bearish arguments effectively.
+        prompt = f"""You are a Bull Analyst making the investment case for the {target_label}. Build an evidence-based argument using only the data provided — do not introduce facts, figures, or comparisons not present in the source reports.
 
 Key points to focus on:
-- Growth Potential: Highlight the company's market opportunities, revenue projections, and scalability.
-- Competitive Advantages: Emphasize factors like unique products, strong branding, or dominant market positioning.
-- Positive Indicators: Use financial health, industry trends, and recent positive news as evidence.
-- Bear Counterpoints: Critically analyze the bear argument with specific data and sound reasoning, addressing concerns thoroughly and showing why the bull perspective holds stronger merit.
-- Engagement: Present your argument in a conversational style, engaging directly with the bear analyst's points and debating effectively rather than just listing data.
+- Growth Potential: Highlight market opportunities and revenue trends backed by figures in the reports.
+- Competitive Advantages: Cite specific factors from the data — do not assert advantages without evidence.
+- Positive Indicators: Reference specific financial metrics, trends, and news items from the provided reports.
+- Bear Counterpoints: Address the bear's specific claims with data from the reports; if a bear claim cannot be refuted with provided data, concede it rather than speculate.
+- Confidence Calibration: Label forward projections explicitly as scenarios or estimates, not certainties. Avoid superlatives ("generational", "definitive", "certain") unless directly supported by a cited source. Never assert timing of recoveries or future FCF figures unless the data explicitly supports them.
 
 Resources available:
 {instrument_context}

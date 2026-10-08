@@ -49,7 +49,7 @@ def create_portfolio_manager(llm):
 **Rating Scale** (use exactly one):
 - **Buy**: Strong conviction to enter or add to position
 - **Overweight**: Favorable outlook, gradually increase exposure
-- **Hold**: Maintain current position, no action needed
+- **Hold**: Maintain current position, no action needed; also use if core data quality issues prevent a reliable directional call
 - **Underweight**: Reduce exposure, take partial profits
 - **Sell**: Exit position or avoid entry
 
@@ -62,7 +62,22 @@ def create_portfolio_manager(llm):
 
 ---
 
-Be decisive and ground every conclusion in specific evidence from the analysts.
+**The `investment_thesis` field must contain all five sections in order:**
+
+**Section 1 — Verified Facts:** Table of every key figure used in the analysis (current price, 50-day SMA, 200-day SMA, 52W high/low, trailing EPS with GAAP/adjusted label and period, forward EPS with source, forward P/E, PEG with growth rate cited, revenue TTM, gross/operating margins, FCF, net debt, guidance exact wording). Label GAAP vs adjusted and period for each.
+
+**Section 2 — Disputed Assumptions:** Every claim in the debate that is an assumption not yet supported by fetched data. For each: the assumption, why it is uncertain, what evidence would confirm or deny it. Use conditional framing ("if consensus EPS is achieved...") not rhetorical certainty ("earnings will recover").
+
+**Section 3 — Scenario Model:** Bear/Base/Bull table — EPS or EBITDA assumption (state basis), applied multiple (and why), implied price, probability weight. Weights sum to 100%. Include probability-weighted expected value.
+
+**Section 4 — Decision:** Rating, entry trigger (price AND volume conditions), position sizing based on distance to invalidation level, technical invalidation (ATR-derived or named zone — a stop tighter than 0.5× ATR is a noise stop, flag it), fundamental invalidation (specific metrics and thresholds).
+
+**Section 5 — Data Quality Report:** List contradictions (SMA labels vs values, margin figures that don't reconcile, guidance characterisation mismatches), assumptions presented as facts, missing data. Rate overall reliability. If core numbers don't reconcile, add **DO-NOT-TRADE** flag with explanation.
+
+**Hard rules — violations make the output unusable:**
+- Do NOT fabricate portfolio holdings, entry prices, fund mandates, or any position context not from the debate.
+- Do NOT present scenarios as certainties.
+- If the forward EPS in any valuation multiple is not sourced from fetched data, flag it in Section 5 and mark the resulting multiple as unverified.
 
 {NO_EXTERNAL_TOOLS}{get_language_instruction()}"""
 

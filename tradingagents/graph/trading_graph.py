@@ -114,6 +114,36 @@ class TradingAgentsGraph:
         self.deep_thinking_llm = deep_client.get_llm()
         self.quick_thinking_llm = quick_client.get_llm()
 
+        # Build per-role LLMs from agent_llms config, falling back to global quick/deep
+        default_quick = {
+            "provider": self.config["llm_provider"],
+            "model": self.config["quick_think_llm"],
+            "base_url": self.config.get("backend_url"),
+        }
+        default_deep = {
+            "provider": self.config["llm_provider"],
+            "model": self.config["deep_think_llm"],
+            "base_url": self.config.get("backend_url"),
+        }
+        agent_llms_cfg = self.config.get("agent_llms") or {}
+        role_llms = {
+            "analysts": self._build_role_llm(agent_llms_cfg.get("analysts", default_quick)),
+            "bull_researcher": self._build_role_llm(
+                agent_llms_cfg.get("bull_researcher", default_quick)
+            ),
+            "bear_researcher": self._build_role_llm(
+                agent_llms_cfg.get("bear_researcher", default_quick)
+            ),
+            "research_manager": self._build_role_llm(
+                agent_llms_cfg.get("research_manager", default_deep)
+            ),
+            "trader": self._build_role_llm(agent_llms_cfg.get("trader", default_quick)),
+            "debators": self._build_role_llm(agent_llms_cfg.get("debators", default_quick)),
+            "portfolio_manager": self._build_role_llm(
+                agent_llms_cfg.get("portfolio_manager", default_deep)
+            ),
+        }
+
         self.memory_log = TradingMemoryLog(self.config)
 
         # Create tool nodes
@@ -125,8 +155,7 @@ class TradingAgentsGraph:
             max_risk_discuss_rounds=self.config["max_risk_discuss_rounds"],
         )
         self.graph_setup = GraphSetup(
-            self.quick_thinking_llm,
-            self.deep_thinking_llm,
+            role_llms,
             self.tool_nodes,
             self.conditional_logic,
         )
@@ -184,6 +213,45 @@ class TradingAgentsGraph:
             kwargs["max_retries"] = _coerce_max_retries(max_retries)
 
         return kwargs
+
+    def _build_role_llm(self, role_cfg: dict) -> Any:
+        """Create an LLM instance for a specific role config dict."""
+        provider = role_cfg["provider"]
+        kwargs: dict[str, Any] = {}
+
+        # Per-role effort overrides the global setting for this provider.
+        role_effort = role_cfg.get("reasoning_effort") or None
+        if provider == "google":
+            effort = role_effort or self.config.get("google_thinking_level")
+            if effort:
+                kwargs["thinking_level"] = effort
+        elif provider == "openai":
+            effort = role_effort or self.config.get("openai_reasoning_effort")
+            if effort:
+                kwargs["reasoning_effort"] = effort
+        elif provider == "anthropic":
+            effort = role_effort or self.config.get("anthropic_effort")
+            if effort:
+                kwargs["effort"] = effort
+
+        temperature = self.config.get("temperature")
+        if temperature is not None and temperature != "":
+            kwargs["temperature"] = float(temperature)
+
+        max_retries = self.config.get("llm_max_retries")
+        if max_retries is not None and max_retries != "":
+            kwargs["max_retries"] = _coerce_max_retries(max_retries)
+
+        if self.callbacks:
+            kwargs["callbacks"] = self.callbacks
+
+        client = create_llm_client(
+            provider=provider,
+            model=role_cfg["model"],
+            base_url=role_cfg.get("base_url"),
+            **kwargs,
+        )
+        return client.get_llm()
 
     def _create_tool_nodes(self) -> dict[str, ToolNode]:
         """Create tool nodes for different data sources using abstract methods."""
@@ -249,7 +317,10 @@ class TradingAgentsGraph:
         return benchmark_map.get("", "SPY")
 
     def _fetch_returns(
-        self, ticker: str, trade_date: str, holding_days: int = 5,
+        self,
+        ticker: str,
+        trade_date: str,
+        holding_days: int = 5,
         benchmark: str = "SPY",
     ) -> tuple[float | None, float | None, int | None]:
         """Fetch raw and alpha return for ticker over holding_days from trade_date.
@@ -277,19 +348,20 @@ class TradingAgentsGraph:
 
             actual_days = min(holding_days, len(stock) - 1, len(bench) - 1)
             raw = float(
-                (stock["Close"].iloc[actual_days] - stock["Close"].iloc[0])
-                / stock["Close"].iloc[0]
+                (stock["Close"].iloc[actual_days] - stock["Close"].iloc[0]) / stock["Close"].iloc[0]
             )
             bench_ret = float(
-                (bench["Close"].iloc[actual_days] - bench["Close"].iloc[0])
-                / bench["Close"].iloc[0]
+                (bench["Close"].iloc[actual_days] - bench["Close"].iloc[0]) / bench["Close"].iloc[0]
             )
             alpha = raw - bench_ret
             return raw, alpha, actual_days
         except Exception as e:
             logger.warning(
                 "Could not resolve outcome for %s on %s vs %s (will retry next run): %s",
-                ticker, trade_date, benchmark, e,
+                ticker,
+                trade_date,
+                benchmark,
+                e,
             )
             return None, None, None
 
@@ -311,7 +383,9 @@ class TradingAgentsGraph:
         updates = []
         for entry in pending:
             raw, alpha, days = self._fetch_returns(
-                ticker, entry["date"], benchmark=benchmark,
+                ticker,
+                entry["date"],
+                benchmark=benchmark,
             )
             if raw is None:
                 continue  # price not available yet — try again next run
@@ -321,14 +395,16 @@ class TradingAgentsGraph:
                 alpha_return=alpha,
                 benchmark_name=benchmark,
             )
-            updates.append({
-                "ticker": ticker,
-                "trade_date": entry["date"],
-                "raw_return": raw,
-                "alpha_return": alpha,
-                "holding_days": days,
-                "reflection": reflection,
-            })
+            updates.append(
+                {
+                    "ticker": ticker,
+                    "trade_date": entry["date"],
+                    "raw_return": raw,
+                    "alpha_return": alpha,
+                    "holding_days": days,
+                    "reflection": reflection,
+                }
+            )
 
         if updates:
             self.memory_log.batch_update_with_outcomes(updates)
@@ -352,12 +428,14 @@ class TradingAgentsGraph:
         selection, debate/risk depth, or asset mode starts fresh instead of
         silently continuing the previous graph (#1089).
         """
-        return "|".join([
-            "analysts=" + ",".join(self.selected_analysts),
-            f"debate={self.config['max_debate_rounds']}",
-            f"risk={self.config['max_risk_discuss_rounds']}",
-            f"asset={asset_type}",
-        ])
+        return "|".join(
+            [
+                "analysts=" + ",".join(self.selected_analysts),
+                f"debate={self.config['max_debate_rounds']}",
+                f"risk={self.config['max_risk_discuss_rounds']}",
+                f"asset={asset_type}",
+            ]
+        )
 
     def propagate(self, company_name, trade_date, asset_type: str = "stock"):
         """Run the trading agents graph for a company on a specific date.
@@ -376,20 +454,18 @@ class TradingAgentsGraph:
 
         # Recompile with a checkpointer if the user opted in.
         if self.config.get("checkpoint_enabled"):
-            self._checkpointer_ctx = get_checkpointer(
-                self.config["data_cache_dir"], company_name
-            )
+            self._checkpointer_ctx = get_checkpointer(self.config["data_cache_dir"], company_name)
             saver = self._checkpointer_ctx.__enter__()
             self.graph = self.workflow.compile(checkpointer=saver)
 
             step = checkpoint_step(
-                self.config["data_cache_dir"], company_name, str(trade_date),
+                self.config["data_cache_dir"],
+                company_name,
+                str(trade_date),
                 self._run_signature(asset_type),
             )
             if step is not None:
-                logger.info(
-                    "Resuming from step %d for %s on %s", step, company_name, trade_date
-                )
+                logger.info("Resuming from step %d for %s on %s", step, company_name, trade_date)
             else:
                 logger.info("Starting fresh for %s on %s", company_name, trade_date)
 
@@ -422,12 +498,14 @@ class TradingAgentsGraph:
         # deterministically resolved instrument identity for all agents.
         past_context = self.memory_log.get_past_context(company_name)
         instrument_context = self.resolve_instrument_context(company_name, asset_type)
+        research_policies = load_approved_policies()
         init_agent_state = self.propagator.create_initial_state(
             company_name,
             trade_date,
             asset_type=asset_type,
             past_context=past_context,
             instrument_context=instrument_context,
+            research_policies=research_policies,
         )
         args = self.propagator.get_graph_args()
 
@@ -475,7 +553,9 @@ class TradingAgentsGraph:
         # Clear checkpoint on successful completion to avoid stale state.
         if self.config.get("checkpoint_enabled"):
             clear_checkpoint(
-                self.config["data_cache_dir"], company_name, str(trade_date),
+                self.config["data_cache_dir"],
+                company_name,
+                str(trade_date),
                 self._run_signature(asset_type),
             )
 
@@ -494,12 +574,8 @@ class TradingAgentsGraph:
                 "bull_history": final_state["investment_debate_state"]["bull_history"],
                 "bear_history": final_state["investment_debate_state"]["bear_history"],
                 "history": final_state["investment_debate_state"]["history"],
-                "current_response": final_state["investment_debate_state"][
-                    "current_response"
-                ],
-                "judge_decision": final_state["investment_debate_state"][
-                    "judge_decision"
-                ],
+                "current_response": final_state["investment_debate_state"]["current_response"],
+                "judge_decision": final_state["investment_debate_state"]["judge_decision"],
             },
             "trader_investment_decision": final_state["trader_investment_plan"],
             "risk_debate_state": {

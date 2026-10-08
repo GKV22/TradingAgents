@@ -1,0 +1,121 @@
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: system-ui, -apple-system, sans-serif;
+  background: #0f1117;
+  color: #e2e8f0;
+  min-height: 100vh;
+}
+
+.app { display: flex; flex-direction: column; min-height: 100vh; }
+
+.header {
+  background: #1a1d27;
+  border-bottom: 1px solid #2d3148;
+  padding: 0 1.5rem;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.header-inner {
+  max-width: 960px;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 2rem;
+  height: 56px;
+}
+
+.logo {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: #7c86ff;
+  letter-spacing: -0.02em;
+  white-space: nowrap;
+}
+
+.tabs { display: flex; gap: 4px; }
+
+.tab-btn {
+  background: none;
+  border: none;
+  color: #8892b0;
+  font-size: 0.875rem;
+  font-weight: 500;
+  padding: 6px 14px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.tab-btn:hover { background: #2d3148; color: #e2e8f0; }
+.tab-btn.active { background: #2d3148; color: #fff; }
+
+.content {
+  flex: 1;
+  padding: 2rem 1.5rem;
+  max-width: 960px;
+  margin: 0 auto;
+  width: 100%;
+}
+
+/* Shared form elements */
+label { font-size: 0.8rem; color: #8892b0; display: block; margin-bottom: 4px; }
+
+select, input[type="text"], input[type="number"], input[type="date"] {
+  width: 100%;
+  background: #1a1d27;
+  border: 1px solid #2d3148;
+  color: #e2e8f0;
+  border-radius: 6px;
+  padding: 7px 10px;
+  font-size: 0.875rem;
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+select:focus, input:focus { border-color: #7c86ff; }
+
+select option { background: #1a1d27; }
+
+button.primary {
+  background: #7c86ff;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  padding: 9px 20px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+button.primary:hover { background: #6370e8; }
+button.primary:disabled { background: #4a4f6e; cursor: not-allowed; }
+
+.card {
+  background: #1a1d27;
+  border: 1px solid #2d3148;
+  border-radius: 10px;
+  padding: 1.25rem 1.5rem;
+}
+
+.section-title {
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #7c86ff;
+  margin-bottom: 1rem;
+}
+
+.save-bar {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-top: 1.5rem;
+}
+
+.save-msg { font-size: 0.85rem; color: #4ade80; }
+.err-msg { font-size: 0.85rem; color: #f87171; }
