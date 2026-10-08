@@ -226,3 +226,15 @@ __marimo__/
 .env.enterprise
 reports/*.html
 
+# Web UI dependencies (rebuild with: npm install && npm run build)
+web/frontend/node_modules/
+
+# Local data - this fork is public
+policy_memory/
+reports/
+
+# Tool working folders
+.claude/
+.playwright-mcp/
+.superpowers/
+*.tsbuildinfo

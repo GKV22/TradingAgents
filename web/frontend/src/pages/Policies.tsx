@@ -50,8 +50,9 @@ export default function Policies() {
   const [activeTab, setActiveTab] = useState<'pending' | 'approved' | 'history'>('pending')
   const [actionMsg, setActionMsg] = useState('')
 
-  async function load() {
-    setLoading(true)
+  // silent: background refresh without the "Loading…" flash
+  async function load(silent = false) {
+    if (!silent) setLoading(true)
     try {
       const [cRes, aRes, eRes] = await Promise.all([
         fetch('/api/policies/candidates'),
@@ -66,7 +67,15 @@ export default function Policies() {
     }
   }
 
-  useEffect(() => { load() }, [])
+  // Keep the lists current: reload every 30s and when the window regains focus,
+  // so rules from a run that finished after this page opened show up without a refresh.
+  useEffect(() => {
+    load()
+    const refresh = () => load(true)
+    const timer = setInterval(refresh, 30_000)
+    window.addEventListener('focus', refresh)
+    return () => { clearInterval(timer); window.removeEventListener('focus', refresh) }
+  }, [])
 
   async function act(policyId: string, action: 'approve' | 'reject') {
     const res = await fetch(`/api/policies/${policyId}/${action}`, { method: 'POST' })

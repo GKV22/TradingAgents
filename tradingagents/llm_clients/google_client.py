@@ -47,11 +47,13 @@ class GoogleClient(BaseLLMClient):
         if google_api_key:
             llm_kwargs["google_api_key"] = google_api_key
 
-        # thinking_level is only supported on Pro models. Flash rejects it.
+        # Gemini 3.x takes the string ``thinking_level``: Pro accepts low/high, Flash also
+        # minimal/medium, so an unsupported "minimal" on Pro maps to "low". Gemini 2.x
+        # models (e.g. gemini-2.5-flash) reject the parameter, so it isn't sent to them.
         thinking_level = self.kwargs.get("thinking_level")
         model_lower = self.model.lower()
-        if thinking_level and "pro" in model_lower:
-            if thinking_level == "minimal":
+        if thinking_level and not model_lower.startswith("gemini-2"):
+            if "pro" in model_lower and thinking_level == "minimal":
                 thinking_level = "low"
             llm_kwargs["thinking_level"] = thinking_level
 

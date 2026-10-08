@@ -98,6 +98,8 @@ export default function Analysis() {
   const [stats, setStats] = useState<Stats | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [elapsed, setElapsed] = useState(0)
+  const [evaluation, setEvaluation] = useState<{ verdict: string; new_rules: number } | null>(null)
+  const [savedPath, setSavedPath] = useState<string | null>(null)
   const abortRef = useRef<AbortController | null>(null)
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
@@ -127,6 +129,10 @@ export default function Analysis() {
       setStats(ev as unknown as Stats)
     } else if (t === 'error') {
       setError(ev.message as string)
+    } else if (t === 'evaluation') {
+      setEvaluation({ verdict: ev.verdict as string, new_rules: ev.new_rules as number })
+    } else if (t === 'report_saved') {
+      setSavedPath(ev.path as string)
     }
   }
 
@@ -134,6 +140,7 @@ export default function Analysis() {
     if (!ticker.trim()) { setError('Enter a ticker symbol'); return }
     const sym = ticker.trim().toUpperCase()
     setError(null); setSections([]); setStatuses({}); setStats(null)
+    setEvaluation(null); setSavedPath(null)
     setDone(false); setElapsed(0); setRunning(true)
     runLabel.current = `${sym} — ${date}`
     timerRef.current = setInterval(() => setElapsed(e => e + 1), 1000)
@@ -272,6 +279,20 @@ export default function Analysis() {
               <span>LLM calls: {stats.llm_calls ?? 0}</span>
               <span>Tokens in: {(stats.tokens_in ?? 0).toLocaleString()}</span>
               <span>Tokens out: {(stats.tokens_out ?? 0).toLocaleString()}</span>
+            </div>
+          )}
+
+          {(evaluation || savedPath) && (
+            <div className="run-notices">
+              {evaluation && (
+                <div>
+                  Report Critic: <strong>{evaluation.verdict}</strong>
+                  {evaluation.new_rules > 0
+                    ? <> · {evaluation.new_rules} new rule suggestion{evaluation.new_rules === 1 ? '' : 's'} — review under Policies → Pending Review</>
+                    : ' · no new rule suggestions'}
+                </div>
+              )}
+              {savedPath && <div>Report saved: {savedPath.split(/[\\/]/).pop()}</div>}
             </div>
           )}
         </div>

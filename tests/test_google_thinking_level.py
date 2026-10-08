@@ -40,6 +40,11 @@ def test_pro_keeps_high():
     assert kw["thinking_level"] == "high"
 
 
+def test_gemini_2_never_receives_thinking_level():
+    kw = _captured_kwargs("gemini-2.5-flash", thinking_level="medium")
+    assert "thinking_level" not in kw  # 2.x rejects the parameter
+
+
 def test_no_thinking_level_is_omitted():
     kw = _captured_kwargs("gemini-3.5-flash")
     assert "thinking_level" not in kw

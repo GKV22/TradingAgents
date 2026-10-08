@@ -279,3 +279,12 @@
   .form-actions { flex-wrap: wrap; }
 }
 
+.run-notices {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 0.8rem;
+  color: #a5b4fc;
+  padding-top: 6px;
+  border-top: 1px solid #2d3148;
+}

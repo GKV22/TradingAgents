@@ -110,6 +110,28 @@ async def analyze(body: dict) -> StreamingResponse:
 
         _emitted_sections.clear()
         _analyst_reports.clear()
+        report_sections: dict[str, tuple[str, str]] = {}  # section key -> (title, content)
+        decision = None
+        run_start = time.time()
+        saved = False
+
+        def _save_report(final_decision: str | None) -> None:
+            """Save the PDF once per run so a page refresh never loses the report."""
+            nonlocal saved
+            if saved or not report_sections:
+                return
+            saved = True
+            try:
+                from web.report_writer import save_report
+
+                path = save_report(
+                    ticker, date, list(report_sections.values()), final_decision,
+                    time.time() - run_start,
+                )
+                print(f"Report saved: {path}", flush=True)
+                loop.call_soon_threadsafe(queue.put_nowait, {"type": "report_saved", "path": str(path)})
+            except Exception as exc:
+                print(f"Report not saved: {exc}", flush=True)
 
         try:
             stats = StatsCallbackHandler()
@@ -119,7 +141,12 @@ async def analyze(body: dict) -> StreamingResponse:
                 debug=False,
                 callbacks=[stats],
             )
-            init_state = graph.propagator.create_initial_state(ticker, date)
+            from tradingagents.policy_store import load_approved_policies
+
+            # Approved Policy Memory rules, as the CLI path does in _run_graph
+            init_state = graph.propagator.create_initial_state(
+                ticker, date, research_policies=load_approved_policies()
+            )
             args = graph.propagator.get_graph_args(callbacks=[stats])
 
             start = time.time()
@@ -130,6 +157,8 @@ async def analyze(body: dict) -> StreamingResponse:
                     break
                 events = _translate_chunk(chunk, analysts, stats, start)
                 for ev in events:
+                    if ev.get("type") == "report_section":
+                        report_sections[ev["section"]] = (ev["title"], ev["content"])
                     loop.call_soon_threadsafe(queue.put_nowait, ev)
                 trace.append(chunk)
 
@@ -151,18 +180,26 @@ async def analyze(body: dict) -> StreamingResponse:
                     try:
                         from web.evaluator import evaluate_run
 
-                        evaluate_run(
+                        record = evaluate_run(
                             run_id, ticker, date, analyst_review_text, final_trade_decision
                         )
+                        loop.call_soon_threadsafe(queue.put_nowait, {
+                            "type": "evaluation",
+                            "verdict": record.get("overall_verdict"),
+                            "new_rules": sum(1 for e in record["errors"] if e.get("reusable_rule")),
+                        })
                     except Exception:
                         pass  # never let evaluation failure break the SSE stream
 
+                _save_report(decision)
                 loop.call_soon_threadsafe(
                     queue.put_nowait, {"type": "complete", "decision": decision}
                 )
         except Exception as exc:
+            _save_report(None)  # before the error event, so the page can show where it went
             loop.call_soon_threadsafe(queue.put_nowait, {"type": "error", "message": str(exc)})
         finally:
+            _save_report(decision)  # partial report if the run failed or was stopped
             global _analysis_running
             _analysis_running = False
             loop.call_soon_threadsafe(queue.put_nowait, None)
