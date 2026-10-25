@@ -299,7 +299,8 @@ def _earnings_calendar_section(ticker_obj, curr_date: str | None) -> str:
     for d in cal.get("Earnings Date") or []:
         if isinstance(d, datetime):
             d = d.date()
-        if isinstance(d, date_type) and d >= as_of:
+        # Not before as_of (no look-back) and not already past today.
+        if isinstance(d, date_type) and d >= max(as_of, today):
             dates.append(d)
     if not dates:
         return ""

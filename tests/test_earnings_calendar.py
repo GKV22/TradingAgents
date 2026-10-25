@@ -40,6 +40,12 @@ def test_past_earnings_dates_ignored(monkeypatch):
     assert _run(_cal(days_ahead=-3), _today().isoformat(), monkeypatch) == ""
 
 
+def test_date_passed_since_as_of_is_not_reported_as_next(monkeypatch):
+    as_of = (_today() - timedelta(days=5)).isoformat()
+    cal = {"Earnings Date": [_today() - timedelta(days=2)]}
+    assert _run(cal, as_of, monkeypatch) == ""
+
+
 def test_datetime_values_and_bad_numbers_handled(monkeypatch):
     cal = {"Earnings Date": [datetime.combine(_today() + timedelta(days=5), datetime.min.time())],
            "Earnings Average": "n/a", "Earnings Low": True}

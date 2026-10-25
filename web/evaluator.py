@@ -54,7 +54,13 @@ def _extract_yaml(text: str) -> dict:
         return {}
 
 
-_PRICE_RE = re.compile(r"[$€£¥]\s?\d|\b\d+(?:\.\d+)?\s?(?:BRL|USD|EUR|GBP)\b")
+_PRICE_RE = re.compile(
+    r"[$€£¥]\s?\d"                                                     # $9.81
+    r"|\b\d+(?:\.\d+)?\s?(?:BRL|USD|EUR|GBP|CHF|CAD|JPY|CNY|HKD|INR)\b"  # 9.59 BRL
+    r"|\b(?:below|above|under|over|at|near)\s+\d+\.\d+(?![\dx×%])"      # below 9.81, not 0.5x ATR
+    r"|\b\d{4}-\d{2}-\d{2}\b",                                           # 2026-10-07
+    re.IGNORECASE,
+)
 
 
 def _is_ticker_specific(rule: str, ticker: str) -> bool:
@@ -175,7 +181,7 @@ def evaluate_run(
         f.write(json.dumps(record) + "\n")
 
     for error in errors:
-        if error.get("reusable_rule"):
+        if error.get("reusable_rule") is True:
             _write_policy_candidate(error, run_id, ticker)
 
     _write_case(run_id, ticker, date, decision_block, final_decision_text)

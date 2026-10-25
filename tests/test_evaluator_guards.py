@@ -28,6 +28,9 @@ def _written(d):
     "Require a failure below $9.81 before calling exhaustion confirmed.",
     "Treat 9.59 BRL as an assumption-driven value.",
     "Verify ZS guidance from the 8-K.",
+    "Require a close below 9.81 before confirming exhaustion.",
+    "Use the 2026-10-07 session only if complete.",
+    "Treat 120 CHF as the floor.",
 ])
 def test_ticker_or_price_specific_rules_not_written(cand_dir, rule):
     ev._write_policy_candidate(_err(rule), "run1", "ZS")
@@ -39,6 +42,25 @@ def test_general_rule_written(cand_dir):
     [c] = _written(cand_dir)
     assert c["applies_to"] == []
     assert "unknown_scope_tags" not in c
+
+
+def test_general_numeric_rules_still_written(cand_dir):
+    for rule in ("Flag stops under 0.5x ATR as noise stops.",
+                 "Label RSI above 70 as overbought."):
+        ev._write_policy_candidate(_err(rule), "r", "ZS")
+    assert len(_written(cand_dir)) == 2
+
+
+def test_evaluate_run_requires_literal_true(tmp_path, monkeypatch, cand_dir):
+    monkeypatch.setattr(ev, "EVAL_LOG", tmp_path / "log.jsonl")
+    monkeypatch.setattr(ev, "CASES_DIR", tmp_path / "cases")
+    monkeypatch.setattr(ev, "POLICIES_DIR", tmp_path / "pol")
+    monkeypatch.setattr(ev, "POLICY_MEMORY_DIR", tmp_path)
+    review = ("```yaml\nerrors:\n"
+              "  - {category: echo_chamber, severity: major, correction: A rule, reusable_rule: 'yes'}\n"
+              "  - {category: echo_chamber, severity: major, correction: B rule, reusable_rule: true}\n```")
+    ev.evaluate_run("r", "ZS", "2026-10-23", review, "HOLD")
+    assert [c["rule"] for c in _written(cand_dir)] == ["B rule"]
 
 
 def test_ticker_match_is_case_sensitive_word(cand_dir):
