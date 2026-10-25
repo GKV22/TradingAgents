@@ -66,6 +66,7 @@ def test_news_lookup_normalizes_symbol(monkeypatch):
             return []
 
     monkeypatch.setattr(ynews.yf, "Ticker", FakeTicker)
+    monkeypatch.setattr(ynews, "_search_ticker_news", lambda symbol, limit: [])
     monkeypatch.setattr(ynews, "yf_retry", lambda fn: fn())
 
     out = ynews.get_news_yfinance("XAUUSD", "2025-01-01", "2025-01-10")

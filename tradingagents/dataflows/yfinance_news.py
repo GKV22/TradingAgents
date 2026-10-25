@@ -84,6 +84,21 @@ def _in_news_window(pub_date, start_dt, end_dt) -> bool:
     return end >= datetime.now(timezone.utc) - timedelta(days=1)
 
 
+def _search_ticker_news(symbol: str, limit: int) -> list:
+    """Fallback: Yahoo Search articles whose relatedTickers include ``symbol``."""
+    try:
+        search = yf_retry(lambda: yf.Search(
+            query=symbol, news_count=limit, enable_fuzzy_query=False,
+        ))
+    except Exception:  # noqa: BLE001 — fallback is best-effort
+        return []
+    wanted = symbol.upper()
+    return [
+        article for article in (getattr(search, "news", None) or [])
+        if wanted in {str(t).upper() for t in article.get("relatedTickers") or []}
+    ]
+
+
 def get_news_yfinance(
     ticker: str,
     start_date: str,
@@ -109,9 +124,18 @@ def get_news_yfinance(
     try:
         stock = yf.Ticker(canonical)
         news = yf_retry(lambda: stock.get_news(count=article_limit))
+        if not news:
+            # Ticker.get_news has returned nothing for every symbol in some
+            # yfinance releases; Search still serves ticker-tagged articles.
+            news = _search_ticker_news(canonical, article_limit)
 
         if not news:
-            return f"No news found for {ticker}{resolved}"
+            return (
+                f"NEWS FEED RETURNED NO DATA for {ticker}{resolved}: the vendor returned "
+                "zero articles, which usually means a feed outage rather than an absence "
+                "of news. Do not treat this as evidence that no news, guidance, earnings "
+                "or catalysts exist; state that company news is unavailable from this feed."
+            )
 
         # Parse date range for filtering
         start_dt = datetime.strptime(start_date, "%Y-%m-%d")
@@ -136,7 +160,11 @@ def get_news_yfinance(
             filtered_count += 1
 
         if filtered_count == 0:
-            return f"No news found for {ticker}{resolved} between {start_date} and {end_date}"
+            return (
+                f"No news found for {ticker}{resolved} between {start_date} and {end_date} "
+                f"({len(news)} articles fetched, none dated inside the window; the feed "
+                "only covers recent articles, so older windows may be empty)."
+            )
 
         return f"## {ticker}{resolved} News, from {start_date} to {end_date}:\n\n{news_str}"
 
