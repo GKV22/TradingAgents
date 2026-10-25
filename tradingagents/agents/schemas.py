@@ -21,7 +21,7 @@ from __future__ import annotations
 from enum import Enum
 from typing import Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, PrivateAttr, field_validator, model_validator
 
 # LLMs sometimes write a placeholder string ("None", "N/A", ...) into an optional
 # numeric field instead of omitting it. Coerce those to None so the structured
@@ -151,10 +151,40 @@ class TraderProposal(BaseModel):
         description="Optional sizing guidance, e.g. '5% of portfolio'.",
     )
 
+    # Set when the model's entry/stop levels were dropped as inconsistent.
+    _level_warning: str | None = PrivateAttr(default=None)
+
     @field_validator("entry_price", "stop_loss", mode="before")
     @classmethod
     def _nullish_float_to_none(cls, v):
         return _coerce_optional_float(v)
+
+    @model_validator(mode="after")
+    def _drop_inconsistent_levels(self):
+        """Never pass through levels that cannot be executed as stated.
+
+        A non-positive price, or a stop on the wrong side of the entry (a
+        Buy/Hold entry is a long entry: stop must be below it; a Sell stop must
+        be above it), is LLM output that would misfire as an order. Drop both
+        levels and record why, rather than failing the structured call.
+        """
+        entry, stop = self.entry_price, self.stop_loss
+        problem = None
+        if any(v is not None and v <= 0 for v in (entry, stop)):
+            problem = "a non-positive price"
+        elif entry is not None and stop is not None:
+            if self.action == TraderAction.SELL and stop <= entry:
+                problem = f"a Sell stop ({stop}) at or below entry ({entry})"
+            elif self.action != TraderAction.SELL and stop >= entry:
+                problem = f"a long stop ({stop}) at or above entry ({entry})"
+        if problem:
+            self._level_warning = (
+                f"Entry/stop levels removed: the model proposed {problem}. "
+                "Set levels from the market report before acting."
+            )
+            self.entry_price = None
+            self.stop_loss = None
+        return self
 
 
 def render_trader_proposal(proposal: TraderProposal) -> str:
@@ -173,6 +203,8 @@ def render_trader_proposal(proposal: TraderProposal) -> str:
         parts.extend(["", f"**Entry Price**: {proposal.entry_price}"])
     if proposal.stop_loss is not None:
         parts.extend(["", f"**Stop Loss**: {proposal.stop_loss}"])
+    if proposal._level_warning:
+        parts.extend(["", f"**Level Check**: {proposal._level_warning}"])
     if proposal.position_sizing:
         parts.extend(["", f"**Position Sizing**: {proposal.position_sizing}"])
     parts.extend(
