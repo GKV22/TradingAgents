@@ -32,6 +32,7 @@ from tradingagents.dataflows.config import set_config
 from tradingagents.dataflows.utils import safe_ticker_component
 from tradingagents.default_config import DEFAULT_CONFIG
 from tradingagents.llm_clients import create_llm_client
+from tradingagents.dataflows.fact_sheet import build_fact_sheet
 from tradingagents.policy_store import load_approved_policies, policy_tags_for_identity
 from tradingagents.reporting import write_report_tree
 
@@ -432,8 +433,8 @@ class TradingAgentsGraph:
         """Build the graph's initial state with identity, past context and policies.
 
         The single entry point for every caller (propagate, CLI, web UI) so no
-        path silently drops the resolved identity, the memory-log context, or
-        the sector-scoped approved policies.
+        path silently drops the resolved identity, the memory-log context, the
+        sector-scoped approved policies, or the shared fact sheet.
         """
         identity = resolve_instrument_identity(ticker)
         policy_tags = policy_tags_for_identity(identity, asset_type)
@@ -444,6 +445,7 @@ class TradingAgentsGraph:
             past_context=self.memory_log.get_past_context(ticker),
             instrument_context=build_instrument_context(ticker, asset_type, identity),
             research_policies=load_approved_policies(applies_to=policy_tags),
+            fact_sheet=build_fact_sheet(ticker, str(trade_date), asset_type),
         )
 
     def _run_signature(self, asset_type: str) -> str:

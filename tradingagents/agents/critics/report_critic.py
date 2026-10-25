@@ -75,8 +75,8 @@ Every case where one agent states a fact that directly contradicts another agent
 - Resolution: which is correct based on data, or "cannot resolve without external source"
 - Severity: CRITICAL (affects investment conclusion) / MODERATE / MINOR
 
-## 1b. Arithmetic Recheck
-Recompute every derived number from the raw figures in the analyst reports — do not trust any agent's arithmetic. At minimum check:
+## 1b. Fact-Sheet and Arithmetic Recheck
+The instrument context above contains a **Fact sheet** built in code (decision price, balance sheet, SEC quarterly data, company guidance, consensus). First, check every input an agent cites — price, shares, net cash, fiscal year end, growth rates, receivable days, guidance, consensus, price targets — against the fact sheet, and flag each mismatch or each figure the fact sheet contradicts (e.g. a scenario growth rate outside company guidance without saying so). Then recompute every derived number from the raw figures — do not trust any agent's arithmetic. At minimum check:
 - Net cash / net debt = cash + short-term investments − total debt (state the sign explicitly)
 - Margins, growth rates, and ratios (e.g. FCF margin, SBC as % of FCF, deferred revenue / revenue)
 - Share-count changes: only compare like with like (period-end vs period-end, or weighted-average vs weighted-average)

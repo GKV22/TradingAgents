@@ -73,3 +73,6 @@ class AgentState(MessagesState):
     research_policies: Annotated[
         str, "Approved quality rules from prior analyses, injected at run start"
     ]
+    fact_sheet: Annotated[
+        str, "Deterministic shared figures (price, balance sheet, SEC data, consensus) built at run start"
+    ]

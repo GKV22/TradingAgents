@@ -21,12 +21,15 @@ def test_build_initial_state_carries_identity_memory_and_scoped_policies():
     with patch("tradingagents.graph.trading_graph.resolve_instrument_identity",
                return_value=identity), \
          patch("tradingagents.graph.trading_graph.load_approved_policies",
-               return_value="POLICIES") as load:
+               return_value="POLICIES") as load, \
+         patch("tradingagents.graph.trading_graph.build_fact_sheet",
+               return_value="FACT SHEET"):
         state = TradingAgentsGraph.build_initial_state(_fake_graph(), "ZS", "2026-10-23")
 
     assert "Zscaler, Inc." in state["instrument_context"]
     assert state["past_context"] == "PAST CONTEXT"
     assert state["research_policies"] == "POLICIES"
+    assert state["fact_sheet"] == "FACT SHEET"
     tags = load.call_args.kwargs["applies_to"]
     assert "software" in tags and "banks" not in tags
 
@@ -35,7 +38,8 @@ def test_build_initial_state_unresolved_identity_passes_no_tags():
     with patch("tradingagents.graph.trading_graph.resolve_instrument_identity",
                return_value={}), \
          patch("tradingagents.graph.trading_graph.load_approved_policies",
-               return_value="") as load:
+               return_value="") as load, \
+         patch("tradingagents.graph.trading_graph.build_fact_sheet", return_value=""):
         TradingAgentsGraph.build_initial_state(_fake_graph(), "ZZZZ", "2026-10-23")
     assert load.call_args.kwargs["applies_to"] == []
 

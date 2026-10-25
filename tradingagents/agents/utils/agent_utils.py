@@ -179,8 +179,9 @@ def get_instrument_context_from_state(state: Mapping[str, Any]) -> str:
     state was constructed without it (bare programmatic states, tests), so a
     consumer is never forced to make a yfinance call mid-graph.
 
-    Appends approved research quality policies (if any) so every agent in the
-    graph sees the same standing rules without individual prompt edits.
+    Appends the run's fact sheet and approved research quality policies (if
+    any) so every agent in the graph sees the same figures and standing rules
+    without individual prompt edits.
     """
     context = state.get("instrument_context")
     if not (isinstance(context, str) and context.strip()):
@@ -188,6 +189,9 @@ def get_instrument_context_from_state(state: Mapping[str, Any]) -> str:
             str(state["company_of_interest"]),
             state.get("asset_type", "stock"),
         )
+    fact_sheet = state.get("fact_sheet")
+    if isinstance(fact_sheet, str) and fact_sheet.strip():
+        context = context.rstrip() + "\n\n" + fact_sheet
     policies = state.get("research_policies")
     if isinstance(policies, str) and policies.strip():
         context = context.rstrip() + "\n\n" + policies

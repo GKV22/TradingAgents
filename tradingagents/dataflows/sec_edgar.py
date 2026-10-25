@@ -1,0 +1,353 @@
+"""SEC EDGAR vendor: point-in-time company facts and the latest earnings release.
+
+Free official data from the SEC, no API key. The SEC requires every request to
+carry a User-Agent identifying the caller with a contact address; it is read
+from ``SEC_EDGAR_USER_AGENT`` (e.g. ``"TradingAgents you@example.com"``). If it
+is unset the vendor raises ``EdgarNotConfiguredError`` and callers degrade to
+"not available" instead of crashing.
+
+Look-ahead safety: every XBRL fact and every filing is filtered by its SEC
+*filed* date, so a historical run only sees what had been filed by then.
+
+Only ``www.sec.gov`` and ``data.sec.gov`` are ever contacted, and URLs are built
+from a numeric CIK resolved through the SEC's own ticker table (which doubles as
+the ticker allowlist), never from free-form input.
+"""
+
+from __future__ import annotations
+
+import html
+import json
+import logging
+import os
+import re
+import time
+from datetime import date, datetime, timedelta
+from pathlib import Path
+from typing import Any
+from urllib.parse import urlparse
+
+import requests
+
+from .config import get_config
+from .errors import VendorNotConfiguredError
+from .utils import safe_ticker_component
+
+logger = logging.getLogger(__name__)
+
+REQUEST_TIMEOUT = 30
+_ALLOWED_HOSTS = {"www.sec.gov", "data.sec.gov"}
+_MIN_INTERVAL = 0.15  # SEC fair-access limit is 10 requests/second
+_last_request = 0.0
+
+_TICKERS_TTL = timedelta(days=7)
+_FACTS_TTL = timedelta(hours=12)
+
+REVENUE_CONCEPTS = (
+    "RevenueFromContractWithCustomerExcludingAssessedTax",
+    "Revenues",
+    "SalesRevenueNet",
+    "RevenuesNetOfInterestExpense",  # banks
+)
+DEFERRED_PAIRS = (
+    ("ContractWithCustomerLiabilityCurrent", "ContractWithCustomerLiabilityNoncurrent"),
+    ("DeferredRevenueCurrent", "DeferredRevenueNoncurrent"),
+)
+SBC_CONCEPTS = ("ShareBasedCompensation", "AllocatedShareBasedCompensationExpense")
+
+_OUTLOOK_HEADINGS = ("outlook", "guidance")
+_OUTLOOK_END_MARKERS = (
+    "these statements are forward-looking",
+    "forward-looking statements",
+    "conference call",
+    "use of non-gaap",
+    "non-gaap financial measures",
+)
+OUTLOOK_MAX_CHARS = 3000
+
+
+class EdgarNotConfiguredError(VendorNotConfiguredError):
+    """Raised when SEC_EDGAR_USER_AGENT is not set."""
+
+
+def _user_agent() -> str:
+    ua = (os.getenv("SEC_EDGAR_USER_AGENT") or "").strip()
+    if "@" not in ua:
+        raise EdgarNotConfiguredError(
+            "SEC_EDGAR_USER_AGENT is not set (the SEC requires a contact, e.g. "
+            "'TradingAgents you@example.com')."
+        )
+    return ua
+
+
+def _cache_dir() -> Path:
+    d = Path(get_config()["data_cache_dir"]) / "sec_edgar"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def _fetch(url: str) -> bytes:
+    host = urlparse(url).hostname
+    if urlparse(url).scheme != "https" or host not in _ALLOWED_HOSTS:
+        raise ValueError(f"Refusing non-SEC URL: {url!r}")
+    global _last_request
+    wait = _MIN_INTERVAL - (time.monotonic() - _last_request)
+    if wait > 0:
+        time.sleep(wait)
+    _last_request = time.monotonic()
+    resp = requests.get(url, headers={"User-Agent": _user_agent()}, timeout=REQUEST_TIMEOUT)
+    resp.raise_for_status()
+    return resp.content
+
+
+def _cached_json(url: str, name: str, ttl: timedelta) -> Any:
+    path = _cache_dir() / name
+    if path.exists():
+        age = datetime.now() - datetime.fromtimestamp(path.stat().st_mtime)
+        if age < ttl:
+            with path.open(encoding="utf-8") as f:
+                return json.load(f)
+    data = json.loads(_fetch(url))
+    path.write_text(json.dumps(data), encoding="utf-8")
+    return data
+
+
+def lookup_cik(ticker: str) -> int | None:
+    """Map a ticker to its SEC CIK via the SEC's own ticker table, or None."""
+    safe_ticker_component(ticker)
+    table = _cached_json(
+        "https://www.sec.gov/files/company_tickers.json", "company_tickers.json", _TICKERS_TTL
+    )
+    wanted = {ticker.upper(), ticker.upper().replace(".", "-")}
+    for row in table.values():
+        if str(row.get("ticker", "")).upper() in wanted:
+            return int(row["cik_str"])
+    return None
+
+
+def _company_facts(cik: int) -> dict:
+    return _cached_json(
+        f"https://data.sec.gov/api/xbrl/companyfacts/CIK{cik:010d}.json",
+        f"facts_{cik}.json", _FACTS_TTL,
+    )
+
+
+def _submissions(cik: int) -> dict:
+    return _cached_json(
+        f"https://data.sec.gov/submissions/CIK{cik:010d}.json",
+        f"submissions_{cik}.json", _FACTS_TTL,
+    )
+
+
+# ── XBRL helpers ────────────────────────────────────────────────────────────
+
+
+def _d(s: str | None) -> date | None:
+    try:
+        return date.fromisoformat(s) if s else None
+    except ValueError:
+        return None
+
+
+def _entries(facts: dict, concept: str, as_of: date, unit: str = "USD") -> list[dict]:
+    """Fact entries filed on or before ``as_of``; latest filing wins per period."""
+    try:
+        raw = facts["facts"]["us-gaap"][concept]["units"][unit]
+    except (KeyError, TypeError):
+        return []
+    best: dict[tuple, dict] = {}
+    for e in raw:
+        filed, end = _d(e.get("filed")), _d(e.get("end"))
+        if not filed or not end or filed > as_of or not isinstance(e.get("val"), (int, float)):
+            continue
+        key = (e.get("start"), e.get("end"))
+        if key not in best or _d(best[key]["filed"]) < filed:
+            best[key] = e
+    return sorted(best.values(), key=lambda e: e["end"])
+
+
+def _duration_days(e: dict) -> int | None:
+    start, end = _d(e.get("start")), _d(e.get("end"))
+    return (end - start).days + 1 if start and end else None
+
+
+def _instants(facts: dict, concept: str, as_of: date) -> dict[date, float]:
+    return {
+        _d(e["end"]): float(e["val"])
+        for e in _entries(facts, concept, as_of)
+        if not e.get("start")
+    }
+
+
+def quarterly_revenue(facts: dict, as_of: date) -> list[dict]:
+    """Quarterly revenue (oldest first), deriving fiscal Q4 as FY minus Q1-Q3."""
+    # Companies switch revenue tags over time; use the one with the freshest data.
+    candidates = [_entries(facts, c, as_of) for c in REVENUE_CONCEPTS]
+    entries = max(candidates, key=lambda es: es[-1]["end"] if es else "", default=[])
+    if not entries:
+        return []
+    quarters = {
+        (_d(e["start"]), _d(e["end"])): float(e["val"])
+        for e in entries if 80 <= (_duration_days(e) or 0) <= 100
+    }
+    for e in entries:
+        if 350 <= (_duration_days(e) or 0) <= 380:
+            fy_start, fy_end = _d(e["start"]), _d(e["end"])
+            inside = sorted(
+                (k for k in quarters if k[0] >= fy_start and k[1] < fy_end), key=lambda k: k[1]
+            )
+            if len(inside) == 3 and not any(k[1] == fy_end for k in quarters):
+                q4_start = inside[-1][1] + timedelta(days=1)
+                quarters[(q4_start, fy_end)] = float(e["val"]) - sum(quarters[k] for k in inside)
+    return [
+        {"start": s, "end": t, "revenue": v}
+        for (s, t), v in sorted(quarters.items(), key=lambda kv: kv[0][1])
+    ]
+
+
+def _latest_annual(facts: dict, concepts: tuple[str, ...], as_of: date) -> dict | None:
+    for concept in concepts:
+        annual = [e for e in _entries(facts, concept, as_of)
+                  if 350 <= (_duration_days(e) or 0) <= 380]
+        if annual:
+            e = annual[-1]
+            return {"end": _d(e["end"]), "value": float(e["val"]), "concept": concept}
+    return None
+
+
+def deferred_revenue(facts: dict, as_of: date) -> dict[date, float]:
+    for current, noncurrent in DEFERRED_PAIRS:
+        cur = _instants(facts, current, as_of)
+        if cur:
+            non = _instants(facts, noncurrent, as_of)
+            return {d: v + non.get(d, 0.0) for d, v in cur.items()}
+    return _instants(facts, "ContractWithCustomerLiability", as_of)
+
+
+# ── Earnings release (8-K Item 2.02, Exhibit 99.1) ──────────────────────────
+
+
+def _html_to_text(raw: str) -> str:
+    t = re.sub(r"(?is)<(script|style).*?</\1>", " ", raw)
+    t = re.sub(r"(?i)<br\s*/?>|</(p|div|tr|li|h\d)>", "\n", t)
+    t = re.sub(r"(?s)<[^>]+>", " ", t)
+    t = html.unescape(t)
+    # Drop control characters (keep newlines); collapse whitespace.
+    t = re.sub(r"[\x00-\x09\x0b-\x1f\x7f]", " ", t)
+    t = re.sub(r"[ \xa0]+", " ", t)
+    t = "\n".join(line.strip() for line in t.splitlines())
+    return re.sub(r"\n\s*\n+", "\n", t).strip()
+
+
+def extract_outlook(text: str) -> str | None:
+    """Return the guidance/outlook section of an earnings release, or None."""
+    lowered = text.lower()
+    start = None
+    offset = 0
+    for line in lowered.splitlines(keepends=True):
+        # A short heading line such as "Financial Outlook" or "Fiscal 2027 Guidance:".
+        heading = line.strip().rstrip(":").strip()
+        if len(heading) <= 60 and heading.endswith(_OUTLOOK_HEADINGS):
+            start = offset
+            break
+        offset += len(line)
+    if start is None:
+        return None
+    tail = lowered[start + 10:]
+    end = min(
+        (tail.find(marker) for marker in _OUTLOOK_END_MARKERS if tail.find(marker) > 0),
+        default=OUTLOOK_MAX_CHARS,
+    )
+    return text[start: start + 10 + min(end, OUTLOOK_MAX_CHARS)].strip()
+
+
+def latest_earnings_release(cik: int, as_of: date) -> dict | None:
+    """Latest 8-K with Item 2.02 filed on or before ``as_of``, with its outlook."""
+    recent = _submissions(cik).get("filings", {}).get("recent", {})
+    forms, items = recent.get("form", []), recent.get("items", [])
+    dates, accs = recent.get("filingDate", []), recent.get("accessionNumber", [])
+    best = None
+    for i, form in enumerate(forms):
+        filed = _d(dates[i]) if i < len(dates) else None
+        if form == "8-K" and "2.02" in (items[i] if i < len(items) else "") \
+                and filed and filed <= as_of and (best is None or filed > best[0]):
+            best = (filed, accs[i])
+    if not best:
+        return None
+    filed, acc = best
+    acc_path = acc.replace("-", "")
+    if not acc_path.isdigit():
+        return None
+    base = f"https://www.sec.gov/Archives/edgar/data/{cik}/{acc_path}/"
+    index = json.loads(_fetch(base + "index.json"))
+    docs = [it.get("name", "") for it in index.get("directory", {}).get("item", [])]
+    htm = [n for n in docs if n.lower().endswith((".htm", ".html"))]
+    # Prefer Exhibit 99.1 (the press release) over 99.2+ (supplements, slides).
+    exhibit = (
+        next((n for n in htm if re.search(r"(?i)(ex-?99[-_.]?0?1|_991|991\.)", n)), None)
+        or next((n for n in htm if re.search(r"(?i)ex-?99", n)), None)
+    )
+    if not exhibit or "/" in exhibit or ".." in exhibit:
+        return {"filed": filed, "url": base, "outlook": None, "headline": None}
+    text = _html_to_text(_fetch(base + exhibit).decode("utf-8", "replace"))
+    headline_match = re.search(r"(?i)exhibit 99\.1\s*(.{0,400})", text, re.S)
+    return {
+        "filed": filed,
+        "url": base + exhibit,
+        "headline": " ".join(headline_match.group(1).split())[:400] if headline_match else None,
+        "outlook": extract_outlook(text),
+    }
+
+
+# ── Public snapshot ─────────────────────────────────────────────────────────
+
+
+def _latest_periodic_filing(subs: dict, as_of: date) -> dict | None:
+    """Latest 10-Q/10-K filed on or before ``as_of``: which period is public."""
+    recent = subs.get("filings", {}).get("recent", {})
+    best = None
+    for form, filed_s, period_s in zip(
+        recent.get("form", []), recent.get("filingDate", []), recent.get("reportDate", [])
+    ):
+        filed, period = _d(filed_s), _d(period_s)
+        if form in ("10-Q", "10-K") and filed and period and filed <= as_of \
+                and (best is None or filed > best["filed"]):
+            best = {"form": form, "filed": filed, "period_end": period}
+    return best
+
+
+
+def get_company_snapshot(ticker: str, as_of: date) -> dict | None:
+    """Point-in-time SEC data for ``ticker`` as of ``as_of``; None if not an SEC filer."""
+    cik = lookup_cik(ticker)
+    if cik is None:
+        return None
+    facts = _company_facts(cik)
+    subs = _submissions(cik)
+
+    revenue = quarterly_revenue(facts, as_of)
+    receivables = _instants(facts, "AccountsReceivableNetCurrent", as_of)
+    for q in revenue:
+        ar = receivables.get(q["end"])
+        days = (q["end"] - q["start"]).days + 1
+        q["receivables"] = ar
+        q["dso"] = ar / (q["revenue"] / days) if ar and q["revenue"] > 0 else None
+
+    latest_filing = _latest_periodic_filing(subs, as_of)
+    fye = str(subs.get("fiscalYearEnd") or "")
+    return {
+        "cik": cik,
+        "name": subs.get("name"),
+        "fiscal_year_end": fye if re.fullmatch(r"\d{4}", fye) else None,
+        "latest_filing": latest_filing,
+        "quarters": revenue,
+        "receivables_by_quarter": receivables,
+        "rpo": _instants(facts, "RevenueRemainingPerformanceObligation", as_of),
+        "deferred_revenue": deferred_revenue(facts, as_of),
+        "sbc_annual": _latest_annual(facts, SBC_CONCEPTS, as_of),
+        "acquisitions_annual": _latest_annual(
+            facts, ("PaymentsToAcquireBusinessesNetOfCashAcquired",), as_of
+        ),
+        "buybacks_annual": _latest_annual(facts, ("PaymentsForRepurchaseOfCommonStock",), as_of),
+        "earnings_release": latest_earnings_release(cik, as_of),
+    }
