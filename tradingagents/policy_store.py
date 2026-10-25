@@ -125,7 +125,7 @@ def _select_diverse(policies: list[dict], max_policies: int) -> list[dict]:
 
 def load_approved_policies(
     applies_to: list[str] | None = None,
-    max_policies: int = 10,
+    max_policies: int = 20,
 ) -> str:
     """Return approved policies as a formatted markdown block, or empty string.
 
@@ -157,7 +157,11 @@ def load_approved_policies(
     if not policies:
         return ""
 
-    policies = _select_diverse(policies, max_policies)
+    # Scoped rules matched this instrument specifically, so they go first.
+    scoped = [p for p in policies if p.get("applies_to")]
+    universal = [p for p in policies if not p.get("applies_to")]
+    policies = _select_diverse(scoped, max_policies)
+    policies += _select_diverse(universal, max_policies - len(policies))
 
     lines = ["**Standing Research Quality Rules (approved from prior analyses):**\n"]
     for i, pol in enumerate(policies, 1):

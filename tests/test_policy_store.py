@@ -110,6 +110,14 @@ class TestSlotAllocation:
         out = ps.load_approved_policies()
         assert out.count("Trace") == 1
 
+    def test_scoped_rules_take_priority(self, policies_dir):
+        for i in range(6):
+            _write(policies_dir, f"U{i}", severity="critical", category=f"c{i}")
+        _write(policies_dir, "BANKRULE", scope=["banks"], severity="minor")
+        out = ps.load_approved_policies(applies_to=["banks"], max_policies=3)
+        assert "BANKRULE" in out
+        assert out.index("BANKRULE") < out.index("U")
+
     def test_respects_max(self, policies_dir):
         for i in range(20):
             _write(policies_dir, f"P{i:02d}", category=f"cat{i % 4}")
