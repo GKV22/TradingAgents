@@ -36,6 +36,8 @@ from .utils import safe_ticker_component
 logger = logging.getLogger(__name__)
 
 REQUEST_TIMEOUT = 30
+# Large-cap companyfacts JSON runs to ~20 MB; anything far beyond is abnormal.
+MAX_RESPONSE_BYTES = 40 * 1024 * 1024
 _ALLOWED_HOSTS = {"www.sec.gov", "data.sec.gov"}
 _MIN_INTERVAL = 0.15  # SEC fair-access limit is 10 requests/second
 _last_request = 0.0
@@ -95,9 +97,21 @@ def _fetch(url: str) -> bytes:
     if wait > 0:
         time.sleep(wait)
     _last_request = time.monotonic()
-    resp = requests.get(url, headers={"User-Agent": _user_agent()}, timeout=REQUEST_TIMEOUT)
-    resp.raise_for_status()
-    return resp.content
+    # No redirects: the host allowlist above must hold for the URL actually read.
+    resp = requests.get(url, headers={"User-Agent": _user_agent()}, timeout=REQUEST_TIMEOUT,
+                        allow_redirects=False, stream=True)
+    try:
+        resp.raise_for_status()
+        if resp.is_redirect:
+            raise ValueError(f"SEC endpoint redirected; refusing to follow: {url!r}")
+        body = bytearray()
+        for chunk in resp.iter_content(chunk_size=65536):
+            body += chunk
+            if len(body) > MAX_RESPONSE_BYTES:
+                raise ValueError(f"SEC response exceeds {MAX_RESPONSE_BYTES} bytes: {url!r}")
+        return bytes(body)
+    finally:
+        resp.close()
 
 
 def _cached_json(url: str, name: str, ttl: timedelta) -> Any:

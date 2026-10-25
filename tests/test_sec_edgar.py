@@ -122,3 +122,41 @@ def test_latest_earnings_release_respects_filed_date(monkeypatch):
     assert rel["filed"] == date(2026, 5, 26)
     assert "000126000095" in fetched[0]
     assert "$875M" in rel["outlook"]
+
+
+class _Resp:
+    def __init__(self, chunks, redirect=False):
+        self._chunks, self.is_redirect, self.closed = chunks, redirect, False
+
+    def raise_for_status(self):
+        pass
+
+    def iter_content(self, chunk_size):
+        yield from self._chunks
+
+    def close(self):
+        self.closed = True
+
+
+def test_fetch_does_not_follow_redirects(monkeypatch):
+    monkeypatch.setenv("SEC_EDGAR_USER_AGENT", "TA test@example.com")
+    seen = {}
+
+    def fake_get(url, **kw):
+        seen.update(kw)
+        return _Resp([], redirect=True)
+
+    monkeypatch.setattr(edgar.requests, "get", fake_get)
+    with pytest.raises(ValueError, match="redirected"):
+        edgar._fetch("https://data.sec.gov/x.json")
+    assert seen["allow_redirects"] is False
+
+
+def test_fetch_caps_response_size(monkeypatch):
+    monkeypatch.setenv("SEC_EDGAR_USER_AGENT", "TA test@example.com")
+    monkeypatch.setattr(edgar, "MAX_RESPONSE_BYTES", 10)
+    monkeypatch.setattr(edgar.requests, "get", lambda url, **kw: _Resp([b"123456", b"789012"]))
+    with pytest.raises(ValueError, match="exceeds"):
+        edgar._fetch("https://data.sec.gov/x.json")
+    monkeypatch.setattr(edgar.requests, "get", lambda url, **kw: _Resp([b"12345"]))
+    assert edgar._fetch("https://data.sec.gov/x.json") == b"12345"
