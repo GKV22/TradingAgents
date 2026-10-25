@@ -94,3 +94,22 @@ def test_fundamentals_no_curr_date_passes_through(monkeypatch):
 def test_fundamentals_non_json_body_unchanged(monkeypatch):
     monkeypatch.setattr(avf, "_make_api_request", lambda fn, params: "not-json")
     assert avf.get_cashflow("AAPL", curr_date="2024-01-01") == "not-json"
+
+
+def test_http_error_message_redacts_api_key(monkeypatch):
+    import requests
+
+    import tradingagents.dataflows.alpha_vantage_common as av
+
+    monkeypatch.setenv("ALPHA_VANTAGE_API_KEY", "SECRETKEY123")
+
+    def fail(*args, **kwargs):
+        raise requests.HTTPError(
+            "500 Server Error for url: https://www.alphavantage.co/query?function=X&apikey=SECRETKEY123&source=t"
+        )
+
+    monkeypatch.setattr(av.requests, "get", fail)
+    with pytest.raises(av.AlphaVantageRequestError) as info:
+        av._make_api_request("NEWS_SENTIMENT", {})
+    assert "SECRETKEY123" not in str(info.value)
+    assert "apikey=REDACTED" in str(info.value)

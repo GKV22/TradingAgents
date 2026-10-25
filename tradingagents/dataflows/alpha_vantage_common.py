@@ -1,5 +1,6 @@
 import json
 import os
+import re
 from datetime import datetime
 from io import StringIO
 
@@ -59,6 +60,14 @@ class AlphaVantageRateLimitError(VendorRateLimitError):
     """Raised when the Alpha Vantage API rate limit is exceeded."""
     pass
 
+class AlphaVantageRequestError(RuntimeError):
+    """Network/HTTP failure talking to Alpha Vantage, with the API key redacted."""
+
+
+def _redact_api_key(text: str) -> str:
+    return re.sub(r"(?i)(apikey=)[^&\s'\"]+", r"\1REDACTED", text)
+
+
 def _make_api_request(function_name: str, params: dict) -> dict | str:
     """Helper function to make API requests and handle responses.
 
@@ -83,8 +92,13 @@ def _make_api_request(function_name: str, params: dict) -> dict | str:
         # Remove entitlement if it's None or empty
         api_params.pop("entitlement", None)
 
-    response = requests.get(API_BASE_URL, params=api_params, timeout=REQUEST_TIMEOUT)
-    response.raise_for_status()
+    try:
+        response = requests.get(API_BASE_URL, params=api_params, timeout=REQUEST_TIMEOUT)
+        response.raise_for_status()
+    except requests.RequestException as exc:
+        # requests embeds the full URL (including apikey=...) in its messages,
+        # which the vendor router logs. Re-raise with the key redacted.
+        raise AlphaVantageRequestError(_redact_api_key(str(exc))) from None
 
     response_text = response.text
 
