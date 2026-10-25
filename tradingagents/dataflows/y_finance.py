@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date as date_type, datetime
 from typing import Annotated
 
 import pandas as pd
@@ -271,6 +271,64 @@ def get_stockstats_indicator(
     return str(indicator_value)
 
 
+_LIVE_WINDOW_DAYS = 7
+
+
+def _earnings_calendar_section(ticker_obj, curr_date: str | None) -> str:
+    """Next earnings date and consensus estimates, for live runs only.
+
+    yfinance's calendar is "as of now", so for a historical ``curr_date`` it
+    would leak future information; it is only included when ``curr_date`` is
+    within a week of today. Best-effort: any failure yields an empty string.
+    """
+    try:
+        as_of = datetime.strptime(curr_date, "%Y-%m-%d").date() if curr_date else None
+    except ValueError:
+        return ""
+    today = datetime.now().date()
+    if as_of is None or abs((today - as_of).days) > _LIVE_WINDOW_DAYS:
+        return ""
+    try:
+        cal = yf_retry(lambda: ticker_obj.calendar) or {}
+    except Exception:  # noqa: BLE001
+        return ""
+    if not isinstance(cal, dict):
+        return ""
+
+    dates = []
+    for d in cal.get("Earnings Date") or []:
+        if isinstance(d, datetime):
+            d = d.date()
+        if isinstance(d, date_type) and d >= as_of:
+            dates.append(d)
+    if not dates:
+        return ""
+
+    def _num(key):
+        value = cal.get(key)
+        return value if isinstance(value, (int, float)) and not isinstance(value, bool) else None
+
+    lines = [
+        "",
+        "",
+        "# Upcoming Earnings (yfinance calendar; consensus is analyst estimates for that quarter)",
+        f"Next Earnings Date: {min(dates).isoformat()} "
+        f"({(min(dates) - as_of).days} days after {as_of.isoformat()})",
+    ]
+    for label, key in (
+        ("Consensus EPS (avg)", "Earnings Average"),
+        ("Consensus EPS (low)", "Earnings Low"),
+        ("Consensus EPS (high)", "Earnings High"),
+        ("Consensus Revenue (avg)", "Revenue Average"),
+        ("Consensus Revenue (low)", "Revenue Low"),
+        ("Consensus Revenue (high)", "Revenue High"),
+    ):
+        value = _num(key)
+        if value is not None:
+            lines.append(f"{label}: {value}")
+    return "\n".join(lines)
+
+
 def get_fundamentals(
     ticker: Annotated[str, "ticker symbol of the company"],
     curr_date: Annotated[str, "current date (not used for yfinance)"] = None
@@ -330,7 +388,7 @@ def get_fundamentals(
         header = f"# Company Fundamentals for {canonical}\n"
         header += f"# Data retrieved on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
 
-        return header + "\n".join(lines)
+        return header + "\n".join(lines) + _earnings_calendar_section(ticker_obj, curr_date)
 
     except NoMarketDataError:
         raise

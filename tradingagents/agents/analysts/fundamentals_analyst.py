@@ -36,6 +36,7 @@ FINANCIAL ACCURACY RULES:
 - For forward EPS or consensus estimates: use only the figure returned by the data tool. If the tool does not return a consensus forward EPS, state "consensus forward EPS not available from fetched data" — do not estimate or infer it.
 - For valuation multiples (PE, PEG, EV/EBITDA): state the exact EPS or EBITDA figure used in the denominator and its period. A PEG ratio is only meaningful if the earnings-growth rate used is explicitly cited and sourced.
 - For margin figures: derive them from the revenue and gross-profit/operating-income figures in the same period — do not state a margin percentage without showing the calculation or confirming it matches the fetched numbers.
+- Earnings calendar: if `get_fundamentals` returns an "Upcoming Earnings" section, report the next earnings date, days until it, and the consensus EPS/revenue (label them as analyst consensus for that quarter, not company guidance). An earnings date within the trading horizon is a scheduled binary event and must be flagged.
 - For guidance: quote management guidance exactly as reported ("raised", "reiterated", "cut" — with the specific figures). Do not paraphrase in a way that changes the characterisation.
 
 Make sure to append a Markdown table at the end of the report listing every key metric with its value, period, and GAAP/adjusted label."""
