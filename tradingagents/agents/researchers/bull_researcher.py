@@ -31,6 +31,7 @@ Key points to focus on:
 - Competitive Advantages: Cite specific factors from the data — do not assert advantages without evidence.
 - Positive Indicators: Reference specific financial metrics, trends, and news items from the provided reports.
 - Bear Counterpoints: Address the bear's specific claims with data from the reports; if a bear claim cannot be refuted with provided data, concede it rather than speculate.
+- Engagement: Answer the last bear argument point by point — quote the specific claim, then concede or rebut it with data. Do not restate arguments you already made in earlier rounds (listed below); every round must add new evidence or a new rebuttal. If you have nothing new to add, say so in one sentence and summarise where the debate stands.
 - Confidence Calibration: Label forward projections explicitly as scenarios or estimates, not certainties. Avoid superlatives ("generational", "definitive", "certain") unless directly supported by a cited source. Never assert timing of recoveries or future FCF figures unless the data explicitly supports them.
 
 Resources available:
@@ -40,6 +41,7 @@ Social media sentiment report: {sentiment_report}
 Latest world affairs news: {news_report}
 {fundamentals_label}: {fundamentals_report}
 Conversation history of the debate: {history}
+Your own previous arguments (do not repeat them): {bull_history}
 Last bear argument: {current_response}
 Use this information to deliver a compelling bull argument, refute the bear's concerns, and engage in a dynamic debate that demonstrates the strengths of the bull position.
 """ + get_language_instruction()

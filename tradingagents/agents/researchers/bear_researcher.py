@@ -32,6 +32,7 @@ Key points to focus on:
 - Competitive Weaknesses: Reference specific data points, not general assertions.
 - Negative Indicators: Use figures directly from the financial data, market report, or news. When data is absent or ambiguous, say so rather than inferring negatives.
 - Bull Counterpoints: Challenge the bull's specific claims using the provided data; if a bull claim is supported by the data, concede it and focus your argument elsewhere.
+- Engagement: Answer the last bull argument point by point — quote the specific claim, then concede or rebut it with data. Do not restate arguments you already made in earlier rounds (listed below); every round must add new evidence or a new rebuttal. If you have nothing new to add, say so in one sentence and summarise where the debate stands.
 - Confidence Calibration: Label downside scenarios explicitly as scenarios or risks, not certainties. Avoid catastrophising — overstatement is as unreliable as overoptimism. If a risk cannot be quantified from the provided data, flag it as unquantifiable rather than speculating on magnitude.
 
 Resources available:
@@ -42,6 +43,7 @@ Social media sentiment report: {sentiment_report}
 Latest world affairs news: {news_report}
 {fundamentals_label}: {fundamentals_report}
 Conversation history of the debate: {history}
+Your own previous arguments (do not repeat them): {bear_history}
 Last bull argument: {current_response}
 Use this information to deliver a compelling bear argument, refute the bull's claims, and engage in a dynamic debate that demonstrates the risks and weaknesses of investing in the {target_label}.
 """ + get_language_instruction()

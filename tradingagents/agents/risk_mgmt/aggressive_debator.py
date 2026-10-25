@@ -21,7 +21,18 @@ def create_aggressive_debator(llm):
 
         trader_decision = state["trader_investment_plan"]
 
-        prompt = f"""You are the Risk Analyst responsible for stress-testing the bull case and evaluating whether the risk/reward is favourable at current levels. Your goal is rigorous analysis — not advocacy. Use only data from the provided reports.
+        first_round = not aggressive_history.strip()
+        scenario_task = (
+            """1. **Scenario table (required):** Present a concise bear/base/bull scenario table with:
+   - Assumed EPS, EBITDA or revenue for each scenario (cite the basis — management guide, consensus, or your stated assumption)
+   - Applied valuation multiple for each scenario and why
+   - Implied price range, showing the arithmetic (multiple × figure ± net cash, ÷ diluted shares)
+   - Probability weight you assign to each scenario (must sum to 100%)"""
+            if first_round
+            else """1. **Scenario table:** You already presented it (see your previous arguments). Do NOT repeat it. Only state which inputs you are changing in response to the other analysts, and the new result."""
+        )
+
+        prompt = f"""You are the Aggressive Risk Analyst. Your seat exists so the panel does not default to inaction: champion the highest-reward course the data can support — adding, buying a pullback, or sizing up — and argue it hard. The conservative and neutral analysts will make the cautious case; do not make it for them. Stay inside the evidence: use only data from the provided reports.
 
 Trader's decision under review:
 {trader_decision}
@@ -37,15 +48,13 @@ Conservative analyst's last argument: {current_conservative_response}
 Neutral analyst's last argument: {current_neutral_response}
 
 YOUR TASK:
-1. **Scenario table (required):** Present a concise bear/base/bull scenario table with:
-   - Assumed EPS or EBITDA for each scenario (cite the basis — management guide, consensus, or your stated assumption)
-   - Applied valuation multiple for each scenario and why
-   - Implied price range
-   - Probability weight you assign to each scenario (must sum to 100%)
+{scenario_task}
 
-2. **Entry and invalidation:** Specify entry conditions (price level AND volume confirmation required), the technical invalidation level derived from ATR or the support zone in the market report (not an arbitrary tight stop), and fundamental invalidation criteria (e.g., "Q2 margins below X%", "FY27 EBITDA guidance cut").
+2. **The upside case:** State the most aggressive action you would defend (e.g. add X% on a pullback to a named level, or buy now), the specific evidence that justifies it, and what the cautious seats lose by waiting (opportunity cost, upcoming catalysts).
 
-3. **Engage the conservative/neutral arguments:** Where their caution is supported by the data, concede it. Where it rests on an assumption you disagree with, state the alternative assumption and its basis.
+3. **Entry and invalidation:** Specify entry conditions (price level AND volume confirmation required), the technical invalidation level derived from ATR or the support zone in the market report (not an arbitrary tight stop), and fundamental invalidation criteria (e.g., "Q2 margins below X%", "FY27 EBITDA guidance cut").
+
+4. **Rebut the conservative/neutral arguments point by point:** Concede only what the data forces you to concede. Where their caution rests on an assumption, name the assumption and argue the alternative. A missing data point is a risk to size for, not by itself a reason to do nothing.
 
 HARD RULES — violations make the output unusable:
 - Do NOT fabricate portfolio holdings, entry prices, mandate constraints, fund context, or any position the system does not have a verified source for.
@@ -53,7 +62,9 @@ HARD RULES — violations make the output unusable:
 - Do NOT treat a low PEG or forward P/E as proof of undervaluation unless the forward EPS denominator is explicitly cited and credible.
 - Social media sentiment and isolated options flow are colour only — do not use them as primary evidence for a directional call.
 
-Be concise. A scenario table and clear invalidation levels are more useful than rhetorical length.""" + get_language_instruction()
+- Do NOT repeat your previous arguments verbatim; each round must add something new.
+
+Be concise. Clear numbers and invalidation levels are more useful than rhetorical length.""" + get_language_instruction()
 
         response = llm.invoke(prompt)
 
