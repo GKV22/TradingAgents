@@ -32,7 +32,7 @@ from tradingagents.dataflows.config import set_config
 from tradingagents.dataflows.utils import safe_ticker_component
 from tradingagents.default_config import DEFAULT_CONFIG
 from tradingagents.llm_clients import create_llm_client
-from tradingagents.policy_store import load_approved_policies
+from tradingagents.policy_store import load_approved_policies, policy_tags_for_identity
 from tradingagents.reporting import write_report_tree
 
 from .checkpointer import checkpoint_step, clear_checkpoint, get_checkpointer, thread_id
@@ -422,6 +422,24 @@ class TradingAgentsGraph:
         identity = resolve_instrument_identity(ticker)
         return build_instrument_context(ticker, asset_type, identity)
 
+    def build_initial_state(self, ticker: str, trade_date, asset_type: str = "stock") -> dict:
+        """Build the graph's initial state with identity, past context and policies.
+
+        The single entry point for every caller (propagate, CLI, web UI) so no
+        path silently drops the resolved identity, the memory-log context, or
+        the sector-scoped approved policies.
+        """
+        identity = resolve_instrument_identity(ticker)
+        policy_tags = policy_tags_for_identity(identity, asset_type)
+        return self.propagator.create_initial_state(
+            ticker,
+            trade_date,
+            asset_type=asset_type,
+            past_context=self.memory_log.get_past_context(ticker),
+            instrument_context=build_instrument_context(ticker, asset_type, identity),
+            research_policies=load_approved_policies(applies_to=policy_tags),
+        )
+
     def _run_signature(self, asset_type: str) -> str:
         """Graph-shape inputs that must invalidate a checkpoint if changed.
 
@@ -495,19 +513,9 @@ class TradingAgentsGraph:
 
     def _run_graph(self, company_name, trade_date, asset_type: str = "stock"):
         """Execute the graph and write the resulting state to disk and memory log."""
-        # Initialize state — inject memory log context for PM and the
-        # deterministically resolved instrument identity for all agents.
-        past_context = self.memory_log.get_past_context(company_name)
-        instrument_context = self.resolve_instrument_context(company_name, asset_type)
-        research_policies = load_approved_policies()
-        init_agent_state = self.propagator.create_initial_state(
-            company_name,
-            trade_date,
-            asset_type=asset_type,
-            past_context=past_context,
-            instrument_context=instrument_context,
-            research_policies=research_policies,
-        )
+        # Initialize state — memory log context for PM, resolved identity and
+        # sector-scoped policies for all agents.
+        init_agent_state = self.build_initial_state(company_name, trade_date, asset_type)
         args = self.propagator.get_graph_args()
 
         # Inject thread_id so same ticker+date+graph-shape resumes; a different

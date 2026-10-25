@@ -84,6 +84,13 @@ async def analyze(body: dict) -> StreamingResponse:
     if not ticker or not date:
         raise HTTPException(status_code=422, detail="ticker and date are required")
 
+    from tradingagents.dataflows.utils import safe_ticker_component
+
+    try:
+        safe_ticker_component(ticker)
+    except ValueError as err:
+        raise HTTPException(status_code=422, detail=f"Invalid ticker: {ticker!r}") from err
+
     from datetime import date as date_type
 
     try:
@@ -141,12 +148,14 @@ async def analyze(body: dict) -> StreamingResponse:
                 debug=False,
                 callbacks=[stats],
             )
-            from tradingagents.policy_store import load_approved_policies
-
-            # Approved Policy Memory rules, as the CLI path does in _run_graph
-            init_state = graph.propagator.create_initial_state(
-                ticker, date, research_policies=load_approved_policies()
-            )
+            # Score earlier same-ticker decisions, then build the same initial
+            # state as the CLI/propagate paths: resolved identity, memory-log
+            # context and sector-scoped approved policies.
+            try:
+                graph._resolve_pending_entries(ticker)
+            except Exception as exc:  # best-effort; never block the run
+                print(f"Pending memory entries not resolved: {exc}", flush=True)
+            init_state = graph.build_initial_state(ticker, date)
             args = graph.propagator.get_graph_args(callbacks=[stats])
 
             start = time.time()
@@ -173,6 +182,12 @@ async def analyze(body: dict) -> StreamingResponse:
                         analyst_review_text = chunk["analyst_review"]
 
                 decision = graph.process_signal(final_trade_decision)
+                if final_trade_decision:
+                    graph.memory_log.store_decision(
+                        ticker=ticker,
+                        trade_date=date,
+                        final_trade_decision=final_trade_decision,
+                    )
 
                 # Post-analysis evaluation: parse critic YAML → log + policy candidates.
                 if analyst_review_text:
