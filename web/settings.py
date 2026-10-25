@@ -46,7 +46,9 @@ DEFAULT_WEB_SETTINGS: dict[str, Any] = {
         "core_stock_apis": "yfinance",
         "technical_indicators": "yfinance",
         "fundamental_data": "yfinance",
-        "news_data": "yfinance",
+        # Alpha Vantage first (article summaries, date-ranged history; free key
+        # ALPHA_VANTAGE_API_KEY). Without a key the router skips to yfinance.
+        "news_data": "alpha_vantage,yfinance",
     },
     "agent_llms": {
         "analysts": {**DEFAULT_ROLE_LLM, "model": "gpt-4.1-mini"},
