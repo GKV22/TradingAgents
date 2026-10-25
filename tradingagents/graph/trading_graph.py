@@ -143,6 +143,12 @@ class TradingAgentsGraph:
             "portfolio_manager": self._build_role_llm(
                 agent_llms_cfg.get("portfolio_manager", default_deep)
             ),
+            # Falls back to the PM's model when unset, matching prior behaviour.
+            "report_critic": self._build_role_llm(
+                agent_llms_cfg.get(
+                    "report_critic", agent_llms_cfg.get("portfolio_manager", default_deep)
+                )
+            ),
         }
 
         self.memory_log = TradingMemoryLog(self.config)

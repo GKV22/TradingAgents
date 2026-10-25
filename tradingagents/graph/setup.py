@@ -88,7 +88,7 @@ class GraphSetup:
         neutral_analyst = create_neutral_debator(llms["debators"])
         conservative_analyst = create_conservative_debator(llms["debators"])
         portfolio_manager_node = create_portfolio_manager(llms["portfolio_manager"])
-        report_critic_node = create_report_critic(llms["portfolio_manager"])
+        report_critic_node = create_report_critic(llms.get("report_critic", llms["portfolio_manager"]))
 
         # Create workflow
         workflow = StateGraph(AgentState)

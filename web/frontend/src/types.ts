@@ -13,6 +13,7 @@ export interface AgentLLMs {
   trader: RoleLLM
   debators: RoleLLM
   portfolio_manager: RoleLLM
+  report_critic: RoleLLM
 }
 
 export interface DataVendors {
@@ -75,6 +76,7 @@ export const ROLE_LABELS: Record<keyof AgentLLMs, string> = {
   trader: 'Trader',
   debators: 'Debators',
   portfolio_manager: 'Portfolio Manager',
+  report_critic: 'Report Critic',
 }
 
 export const ROLE_DESC: Record<keyof AgentLLMs, string> = {
@@ -85,6 +87,7 @@ export const ROLE_DESC: Record<keyof AgentLLMs, string> = {
   trader: 'Generates the trade recommendation',
   debators: 'Risk panel: aggressive / neutral / conservative',
   portfolio_manager: 'Final portfolio decision (deep-think)',
+  report_critic: 'Audits the run; use a different, strong model from the Portfolio Manager',
 }
 
 export const ANALYST_OPTIONS = [

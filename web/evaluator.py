@@ -32,6 +32,7 @@ from tradingagents.policy_store import (
     EVAL_LOG,
     POLICIES_DIR,
     POLICY_MEMORY_DIR,  # re-exported so callers can import from either module
+    POLICY_TAG_VOCABULARY,
 )
 
 _SEVERITY_ORDER = {"critical": 0, "major": 1, "moderate": 2, "minor": 3}
@@ -53,17 +54,41 @@ def _extract_yaml(text: str) -> dict:
         return {}
 
 
+_PRICE_RE = re.compile(r"[$€£¥]\s?\d|\b\d+(?:\.\d+)?\s?(?:BRL|USD|EUR|GBP)\b")
+
+
+def _is_ticker_specific(rule: str, ticker: str) -> bool:
+    """True when a proposed rule names the ticker or a concrete price level.
+
+    Such rules (e.g. "require a failure below $9.81") only make sense for the
+    run that produced them; approved as universal they leak into every later
+    analysis.
+    """
+    if ticker and re.search(rf"\b{re.escape(ticker)}\b", rule):
+        return True
+    return bool(_PRICE_RE.search(rule))
+
+
 def _write_policy_candidate(error: dict, run_id: str, ticker: str) -> None:
+    rule = error.get("correction", "") or ""
+    if _is_ticker_specific(rule, ticker):
+        return
+
+    scope = [str(t) for t in (error.get("policy_scope") or [])]
+    unknown = [t for t in scope if t not in POLICY_TAG_VOCABULARY]
+
     short = str(uuid.uuid4())[:8].upper()
     cat = error.get("category", "rule").upper().replace("_", "-")
     policy_id = f"{cat}-{short}"
 
     candidate: dict[str, Any] = {
         "policy_id": policy_id,
-        "applies_to": error.get("policy_scope") or [],
+        # Unknown tags are kept (not dropped to []), so the rule stays inert
+        # rather than silently becoming universal; flagged for review.
+        "applies_to": scope,
         "category": error.get("category", ""),
         "severity": error.get("severity", "moderate"),
-        "rule": error.get("correction", ""),
+        "rule": rule,
         "example_claim": error.get("claim", ""),
         "example_issue": error.get("issue", ""),
         "created_from": run_id,
@@ -71,6 +96,8 @@ def _write_policy_candidate(error: dict, run_id: str, ticker: str) -> None:
         "status": "pending",
         "created_at": datetime.utcnow().isoformat() + "Z",
     }
+    if unknown:
+        candidate["unknown_scope_tags"] = unknown
 
     path = CANDIDATES_DIR / f"{policy_id}.yaml"
     with path.open("w", encoding="utf-8") as f:

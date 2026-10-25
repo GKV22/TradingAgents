@@ -56,6 +56,7 @@ DEFAULT_WEB_SETTINGS: dict[str, Any] = {
         "trader": {**DEFAULT_ROLE_LLM, "model": "gpt-4.1-mini"},
         "debators": {**DEFAULT_ROLE_LLM, "model": "gpt-4.1-mini"},
         "portfolio_manager": {**DEFAULT_ROLE_LLM, "model": "gpt-4.1"},
+        "report_critic": {**DEFAULT_ROLE_LLM, "model": "gpt-4.1"},
     },
 }
 

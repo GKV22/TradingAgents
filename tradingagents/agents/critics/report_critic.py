@@ -20,6 +20,9 @@ from tradingagents.agents.utils.agent_utils import (
     get_language_instruction,
 )
 from tradingagents.agents.utils.structured import NO_EXTERNAL_TOOLS
+from tradingagents.policy_store import POLICY_TAG_VOCABULARY
+
+_TAG_LIST = ", ".join(POLICY_TAG_VOCABULARY)
 
 
 def create_report_critic(llm):
@@ -71,6 +74,15 @@ Every case where one agent states a fact that directly contradicts another agent
 - **Claim B** (source agent): exact quote
 - Resolution: which is correct based on data, or "cannot resolve without external source"
 - Severity: CRITICAL (affects investment conclusion) / MODERATE / MINOR
+
+## 1b. Arithmetic Recheck
+Recompute every derived number from the raw figures in the analyst reports — do not trust any agent's arithmetic. At minimum check:
+- Net cash / net debt = cash + short-term investments − total debt (state the sign explicitly)
+- Margins, growth rates, and ratios (e.g. FCF margin, SBC as % of FCF, deferred revenue / revenue)
+- Share-count changes: only compare like with like (period-end vs period-end, or weighted-average vs weighted-average)
+- Scenario prices: (multiple × revenue or earnings ± net cash) ÷ diluted shares, and any probability-weighted value
+- Figures attributed to peers or to prior periods that do not appear in any analyst report (flag as fabricated)
+List each mismatch above 2% as: claimed value (agent) → recomputed value → inputs used. Record each as an `arithmetic_inconsistency` error.
 
 ## 2. Echo Chamber Check
 Cases where the bull case, aggressive analyst, or trading plan cite the same fact or assumption and present agreement between agents as independent corroboration. True corroboration requires independent data sources. For each recycled claim: name the claim, list which agents repeated it verbatim or near-verbatim, and state whether any provided genuinely new evidence or just restated the same input.
@@ -128,7 +140,7 @@ errors:
     issue: "what is analytically wrong"
     correction: "the rule or methodology that should have been applied"
     reusable_rule: true                  # true = rule applies beyond this ticker; false = specific to this run
-    policy_scope: []                     # [] for universal rules; list sector/context tags otherwise e.g. [utilities, independent_power_producers]
+    policy_scope: []                     # [] for universal rules; otherwise tags ONLY from the allowed list below
 decision:
   original_action: BUY                  # Rating from Portfolio Manager
   required_before_upgrade:
@@ -136,7 +148,7 @@ decision:
     - "reconcile Y before acting"
 ```
 
-List every error found. Only set `reusable_rule: true` if the correction is a general analytical principle applicable to future analyses. Set `policy_scope: []` for universal rules; populate it for sector- or instrument-specific rules.
+List every error found. Only set `reusable_rule: true` if the correction is a general analytical principle applicable to future analyses. A rule that names this ticker, a specific price level, a specific date, or a specific dollar figure is NOT reusable — set `reusable_rule: false`. Set `policy_scope: []` only for principles that hold for every asset; if the rule only makes sense for one kind of business, set `policy_scope` using ONLY these tags: {_TAG_LIST}. Do not invent other tags.
 
 {NO_EXTERNAL_TOOLS}{get_language_instruction()}"""
 
