@@ -160,3 +160,23 @@ def test_fetch_caps_response_size(monkeypatch):
         edgar._fetch("https://data.sec.gov/x.json")
     monkeypatch.setattr(edgar.requests, "get", lambda url, **kw: _Resp([b"12345"]))
     assert edgar._fetch("https://data.sec.gov/x.json") == b"12345"
+
+
+def test_ttm_gaap_eps_uses_annual_shares_for_fiscal_q4():
+    facts = {"facts": {"us-gaap": {
+        "NetIncomeLoss": {"units": {"USD": [
+            _fact("2025-08-01", "2025-10-31", -11.6, "2025-12-03"),
+            _fact("2025-11-01", "2026-01-31", -34.3, "2026-02-27"),
+            _fact("2026-02-01", "2026-04-30", -13.9, "2026-05-28"),
+            _fact("2025-08-01", "2026-07-31", -63.2, "2026-09-03", "10-K"),
+        ]}},
+        "WeightedAverageNumberOfDilutedSharesOutstanding": {"units": {"shares": [
+            _fact("2025-08-01", "2026-07-31", 160.2, "2026-09-03", "10-K"),
+        ]}},
+    }}}
+    eps = edgar.ttm_gaap_eps(facts, date(2026, 10, 30))
+    assert eps["end"] == date(2026, 7, 31)
+    assert eps["net_income"] == pytest.approx(-63.2)
+    assert eps["eps"] == pytest.approx(-63.2 / 160.2)
+    # Before the 10-K, Q4 net income is unknown: no TTM figure.
+    assert edgar.ttm_gaap_eps(facts, date(2026, 8, 15)) is None

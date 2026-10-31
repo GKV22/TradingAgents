@@ -13,7 +13,8 @@ from tradingagents.agents.utils.agent_utils import get_instrument_context_from_s
 def _rows(end="2026-10-23"):
     dates = pd.bdate_range(end=end, periods=260)
     close = np.linspace(120, 255.15, len(dates))
-    return pd.DataFrame({"Date": dates, "Close": close})
+    return pd.DataFrame({"Date": dates, "Open": close, "High": close * 1.02,
+                         "Low": close * 0.98, "Close": close, "Volume": 3e6})
 
 
 class _FakeTicker:
@@ -47,7 +48,10 @@ SNAP = {
          "receivables": 1149.1e6, "dso": 118.0},
     ],
     "rpo": {date(2025, 7, 31): 5.78e9, date(2026, 7, 31): 7.3654e9},
-    "deferred_revenue": {date(2026, 7, 31): 2.9258e9},
+    "deferred_revenue": {date(2025, 4, 30): 1.90e9, date(2025, 7, 31): 2.47e9,
+                         date(2026, 4, 30): 2.4772e9, date(2026, 7, 31): 2.9258e9},
+    "ttm_eps": {"end": date(2026, 7, 31), "net_income": -63.2e6, "diluted_shares": 160.2e6,
+                "eps": -0.3945},
     "sbc_annual": {"end": date(2026, 7, 31), "value": 821.9e6},
     "acquisitions_annual": None,
     "buybacks_annual": {"end": date(2021, 7, 31), "value": 0.0},
@@ -136,6 +140,16 @@ def test_quoted_release_text_cannot_escape_its_block(patched, monkeypatch):
 def test_inline_labels_sanitised():
     assert fs._clean_inline("Citi`` ## <b>\nGroup") == "Citi b Group"
     assert len(fs._clean_inline("x" * 100)) == 40
+
+
+def test_billings_eps_and_technicals(patched):
+    out = fs.build_fact_sheet("ZS", "2026-10-23")
+    # Q4 FY26: 898.2 + (2925.8 - 2477.2) = 1346.8; Q4 FY25: 719.2 + (2470 - 1900) = 1289.2
+    assert "| 2026-07-31 | $2,925.8M | $448.6M | $1,346.8M | +4.5% |" in out
+    assert "Calculated billings = quarter revenue + change in deferred revenue" in out
+    assert "Trailing-12-month GAAP diluted EPS (to 2026-07-31): -$0.39" in out
+    assert "Technical levels on that close: 10-day EMA $" in out
+    assert "ATR (14-day) $" in out and "RSI (14-day)" in out
 
 
 def test_bad_date_returns_empty():

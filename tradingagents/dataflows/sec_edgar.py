@@ -193,13 +193,16 @@ def _instants(facts: dict, concept: str, as_of: date) -> dict[date, float]:
     }
 
 
-def quarterly_revenue(facts: dict, as_of: date) -> list[dict]:
-    """Quarterly revenue (oldest first), deriving fiscal Q4 as FY minus Q1-Q3."""
-    # Companies switch revenue tags over time; use the one with the freshest data.
-    candidates = [_entries(facts, c, as_of) for c in REVENUE_CONCEPTS]
+def quarterly_flow(facts: dict, concepts: tuple[str, ...], as_of: date,
+                   unit: str = "USD") -> dict[tuple[date, date], float]:
+    """Quarterly values of an additive flow (revenue, net income), keyed (start, end).
+
+    Fiscal Q4 is rarely tagged as a quarter (only the 10-K annual is), so it is
+    derived as FY minus Q1-Q3. When several concepts exist, the one with the
+    freshest data is used (companies switch tags over time).
+    """
+    candidates = [_entries(facts, c, as_of, unit) for c in concepts]
     entries = max(candidates, key=lambda es: es[-1]["end"] if es else "", default=[])
-    if not entries:
-        return []
     quarters = {
         (_d(e["start"]), _d(e["end"])): float(e["val"])
         for e in entries if 80 <= (_duration_days(e) or 0) <= 100
@@ -213,10 +216,36 @@ def quarterly_revenue(facts: dict, as_of: date) -> list[dict]:
             if len(inside) == 3 and not any(k[1] == fy_end for k in quarters):
                 q4_start = inside[-1][1] + timedelta(days=1)
                 quarters[(q4_start, fy_end)] = float(e["val"]) - sum(quarters[k] for k in inside)
+    return quarters
+
+
+def quarterly_revenue(facts: dict, as_of: date) -> list[dict]:
+    """Quarterly revenue (oldest first), deriving fiscal Q4 as FY minus Q1-Q3."""
+    quarters = quarterly_flow(facts, REVENUE_CONCEPTS, as_of)
     return [
         {"start": s, "end": t, "revenue": v}
         for (s, t), v in sorted(quarters.items(), key=lambda kv: kv[0][1])
     ]
+
+
+def ttm_gaap_eps(facts: dict, as_of: date) -> dict | None:
+    """Trailing-twelve-month GAAP diluted EPS, approximated as TTM net income ÷
+    the latest quarter's diluted weighted-average shares."""
+    income = quarterly_flow(facts, ("NetIncomeLoss",), as_of)
+    last4 = sorted(income.items(), key=lambda kv: kv[0][1])[-4:]
+    if len(last4) < 4 or (last4[-1][0][1] - last4[0][0][0]).days > 380:
+        return None
+    end = last4[-1][0][1]
+    ending = [e for e in _entries(facts, "WeightedAverageNumberOfDilutedSharesOutstanding",
+                                  as_of, unit="shares") if _d(e["end"]) == end and e.get("start")]
+    # Prefer the quarter's count; a fiscal Q4 usually only has the 10-K annual one.
+    shares = sorted(ending, key=lambda e: _duration_days(e) or 0)
+    if not shares or not shares[0]["val"]:
+        return None
+    shares = shares[:1]
+    net = sum(v for _, v in last4)
+    return {"end": end, "net_income": net, "diluted_shares": float(shares[-1]["val"]),
+            "eps": net / float(shares[-1]["val"])}
 
 
 def _latest_annual(facts: dict, concepts: tuple[str, ...], as_of: date) -> dict | None:
@@ -363,5 +392,6 @@ def get_company_snapshot(ticker: str, as_of: date) -> dict | None:
             facts, ("PaymentsToAcquireBusinessesNetOfCashAcquired",), as_of
         ),
         "buybacks_annual": _latest_annual(facts, ("PaymentsForRepurchaseOfCommonStock",), as_of),
+        "ttm_eps": ttm_gaap_eps(facts, as_of),
         "earnings_release": latest_earnings_release(cik, as_of),
     }

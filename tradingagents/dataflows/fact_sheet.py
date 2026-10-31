@@ -28,6 +28,7 @@ from datetime import date, datetime, timedelta
 
 import pandas as pd
 import yfinance as yf
+from stockstats import wrap
 
 from . import sec_edgar
 from .market_data_validator import _verified_rows
@@ -46,7 +47,9 @@ _MONTHS = ("January February March April May June July August September "
 
 def _m(v) -> str:
     """Format a dollar amount in millions."""
-    return "n/a" if v is None or pd.isna(v) else f"${v / 1e6:,.1f}M"
+    if v is None or pd.isna(v):
+        return "n/a"
+    return f"{'-' if v < 0 else ''}${abs(v) / 1e6:,.1f}M"
 
 
 def _pct(v) -> str:
@@ -110,7 +113,38 @@ def _price_section(sheet: _Sheet, symbol: str, trade_date: str) -> dict:
     sheet.add(f"52-week range (closes up to that date): ${year['Close'].min():.2f} – "
               f"${year['Close'].max():.2f}; price is "
               f"{(price / year['Close'].max() - 1) * 100:+.1f}% vs the 52-week high")
+    _technicals(sheet, df, price)
     return {"price": price}
+
+
+_TECHNICALS = (
+    ("close_10_ema", "10-day EMA"),
+    ("close_50_sma", "50-day SMA"),
+    ("close_200_sma", "200-day SMA"),
+    ("atr", "ATR (14-day)"),
+    ("rsi", "RSI (14-day)"),
+)
+
+
+def _technicals(sheet: _Sheet, df: pd.DataFrame, price: float):
+    """Key levels on the decision-price row, computed like the market snapshot."""
+    stock = wrap(df.copy())
+    parts = []
+    for column, label in _TECHNICALS:
+        try:
+            value = _num(stock[column].iloc[-1])
+        except Exception:  # noqa: BLE001 — one bad indicator shouldn't drop the rest
+            value = None
+        if value is None:
+            continue
+        if column == "rsi":
+            parts.append(f"{label} {value:.1f}")
+        elif column == "atr":
+            parts.append(f"{label} ${value:.2f} ({value / price * 100:.1f}% of price)")
+        else:
+            parts.append(f"{label} ${value:.2f} (price {(price / value - 1) * 100:+.1f}%)")
+    if parts:
+        sheet.add("Technical levels on that close: " + "; ".join(parts))
 
 
 def _balance_section(sheet: _Sheet, ticker_obj, as_of: date, filed_period: date | None,
@@ -189,6 +223,14 @@ def _sec_section(sheet: _Sheet, snap: dict, ev: float | None, as_of: date):
             prior = next((series[d] for d in series if abs((end - d).days - 365) <= 7), None)
             sheet.add(f"{label}: {_m(series[end])} at {end}"
                       + (f" ({_pct(series[end] / prior - 1)} YoY)" if prior else ""))
+    _billings_table(sheet, all_quarters, snap.get("deferred_revenue") or {})
+
+    eps = snap.get("ttm_eps")
+    if eps:
+        sign = "-" if eps["eps"] < 0 else ""
+        sheet.add(f"Trailing-12-month GAAP diluted EPS (to {eps['end']}): {sign}${abs(eps['eps']):.2f} "
+                  f"(TTM GAAP net income {_m(eps['net_income'])} ÷ "
+                  f"{eps['diluted_shares'] / 1e6:,.1f}M diluted weighted-average shares)")
 
     for label, key in (("Stock-based compensation", "sbc_annual"),
                        ("Cash paid for acquisitions", "acquisitions_annual"),
@@ -200,6 +242,43 @@ def _sec_section(sheet: _Sheet, snap: dict, ev: float | None, as_of: date):
             sheet.add(f"{label} (fiscal year ended {item['end']}): {_m(item['value'])}")
         else:
             sheet.add(f"{label}: none reported in XBRL filings")
+
+
+def _near(series: dict[date, float], target: date, tolerance: int = 7) -> float | None:
+    return next((v for d, v in series.items() if abs((d - target).days) <= tolerance), None)
+
+
+def _billings_table(sheet: _Sheet, quarters: list[dict], deferred: dict[date, float]):
+    """Deferred revenue per quarter end and calculated billings.
+
+    Billings = quarter revenue + change in deferred revenue over the quarter:
+    a standard subscription-software proxy for what was invoiced, which shows
+    whether deferred-revenue growth is lagging revenue because of timing or
+    because demand is slowing.
+    """
+    rows = []
+    for q in quarters[-5:]:
+        open_dr = _near(deferred, q["start"] - timedelta(days=1))
+        close_dr = _near(deferred, q["end"])
+        billings = q["revenue"] + close_dr - open_dr if open_dr is not None and close_dr is not None else None
+        prior_q = next((p for p in quarters if abs((q["end"] - p["end"]).days - 365) <= 7), None)
+        prior_billings = None
+        if prior_q:
+            p_open = _near(deferred, prior_q["start"] - timedelta(days=1))
+            p_close = _near(deferred, prior_q["end"])
+            if p_open is not None and p_close is not None:
+                prior_billings = prior_q["revenue"] + p_close - p_open
+        yoy = billings / prior_billings - 1 if billings and prior_billings else None
+        rows.append((q["end"], close_dr, None if close_dr is None or open_dr is None
+                     else close_dr - open_dr, billings, yoy))
+    if not any(r[3] is not None for r in rows):
+        return
+    sheet.lines += ["", "| Quarter ended | Deferred revenue | Change in quarter | "
+                    "Calculated billings | Billings YoY |", "|---|---:|---:|---:|---:|"]
+    for end, dr, change, billings, yoy in rows:
+        sheet.lines.append(f"| {end} | {_m(dr)} | {_m(change)} | {_m(billings)} | {_pct(yoy)} |")
+    sheet.add("Calculated billings = quarter revenue + change in deferred revenue. Compare each "
+              "quarter with the same quarter a year earlier; billing is seasonal.")
 
 
 def _guidance_section(sheet: _Sheet, release: dict | None):
