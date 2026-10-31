@@ -50,6 +50,10 @@ from tradingagents.graph.analyst_execution import (
 )
 from tradingagents.graph.trading_graph import TradingAgentsGraph
 from tradingagents.reporting import write_report_tree
+from tradingagents.tls import use_system_trust_store
+
+# Trust the OS certificate store (antivirus HTTPS scanning, e.g. Norton).
+use_system_trust_store()
 
 console = Console()
 

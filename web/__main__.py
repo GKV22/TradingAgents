@@ -8,6 +8,12 @@ from dotenv import load_dotenv
 load_dotenv()
 load_dotenv(".env.enterprise", override=False)
 
+# Before any HTTPS client is created: trust the OS certificate store so
+# antivirus HTTPS scanning (Norton Web/Mail Shield) doesn't break API calls.
+from tradingagents.tls import use_system_trust_store  # noqa: E402
+
+use_system_trust_store()
+
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="TradingAgents Web UI")
