@@ -170,6 +170,45 @@ def build_instrument_context(
     return context
 
 
+_MIN_REPORT_CHARS = 400
+
+
+def _incomplete_reason(result) -> str | None:
+    """Why a no-tool-call reply is not a usable final report, or None if it is."""
+    if getattr(result, "invalid_tool_calls", None):
+        return "the model emitted a malformed tool call"
+    meta = getattr(result, "response_metadata", None) or {}
+    if (meta.get("finish_reason") or meta.get("stop_reason")) in ("length", "max_tokens"):
+        return "the model's output was cut off at its token limit"
+    content = result.content if isinstance(result.content, str) else str(result.content or "")
+    if len(content.strip()) < _MIN_REPORT_CHARS:
+        return "the reply was too short to be a report"
+    return None
+
+
+def invoke_tool_analyst(chain, messages, retries: int = 1):
+    """Invoke a tool-using analyst chain; return ``(result, report)``.
+
+    A reply without tool calls used to be taken as the final report even when
+    it was a truncated preamble (a ZS run's fundamentals section was the single
+    line "Now the annual statements to reconcile ... acqui"). Now such a reply
+    is retried; if it is still incomplete, the report is returned with a
+    visible INCOMPLETE banner so downstream agents treat the section as
+    missing instead of as evidence.
+    """
+    for _ in range(retries + 1):
+        result = chain.invoke(messages)
+        if result.tool_calls:
+            return result, ""
+        problem = _incomplete_reason(result)
+        if problem is None:
+            return result, result.content
+    content = result.content if isinstance(result.content, str) else str(result.content or "")
+    banner = (f"**[INCOMPLETE REPORT: {problem}. Treat this analyst's section as missing; "
+              "do not cite it as evidence.]**")
+    return result, f"{banner}\n\n{content}".rstrip()
+
+
 def get_instrument_context_from_state(state: Mapping[str, Any]) -> str:
     """Return the instrument context for the current run.
 

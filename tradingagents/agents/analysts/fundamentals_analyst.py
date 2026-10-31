@@ -1,6 +1,7 @@
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 
 from tradingagents.agents.utils.agent_utils import (
+    invoke_tool_analyst,
     get_balance_sheet,
     get_cashflow,
     get_fundamentals,
@@ -68,12 +69,7 @@ Make sure to append a Markdown table at the end of the report listing every key 
 
         chain = prompt | llm.bind_tools(tools)
 
-        result = chain.invoke(state["messages"])
-
-        report = ""
-
-        if len(result.tool_calls) == 0:
-            report = result.content
+        result, report = invoke_tool_analyst(chain, state["messages"])
 
         return {
             "messages": [result],

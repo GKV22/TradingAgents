@@ -1,6 +1,7 @@
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 
 from tradingagents.agents.utils.agent_utils import (
+    invoke_tool_analyst,
     get_global_news,
     get_instrument_context_from_state,
     get_language_instruction,
@@ -63,12 +64,7 @@ Provide specific, actionable insights with supporting evidence. Clearly label th
         prompt = prompt.partial(instrument_context=instrument_context)
 
         chain = prompt | llm.bind_tools(tools)
-        result = chain.invoke(state["messages"])
-
-        report = ""
-
-        if len(result.tool_calls) == 0:
-            report = result.content
+        result, report = invoke_tool_analyst(chain, state["messages"])
 
         return {
             "messages": [result],
