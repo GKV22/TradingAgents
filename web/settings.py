@@ -46,9 +46,9 @@ DEFAULT_WEB_SETTINGS: dict[str, Any] = {
         "core_stock_apis": "yfinance",
         "technical_indicators": "yfinance",
         "fundamental_data": "yfinance",
-        # Alpha Vantage first (article summaries, date-ranged history; free key
-        # ALPHA_VANTAGE_API_KEY). Without a key the router skips to yfinance.
-        "news_data": "alpha_vantage,yfinance",
+        # For article summaries and date-ranged history, use "finnhub,yfinance"
+        # with FINNHUB_API_KEY set (free). Alpha Vantage news is premium-only.
+        "news_data": "yfinance",
     },
     "agent_llms": {
         "analysts": {**DEFAULT_ROLE_LLM, "model": "gpt-4.1-mini"},
