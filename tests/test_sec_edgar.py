@@ -96,6 +96,32 @@ def test_extract_outlook_handles_heading_variants():
     assert edgar.extract_outlook("No guidance section here at all, sorry.") is None
 
 
+def test_extract_outlook_skips_disclaimer_paragraph_under_heading():
+    # Shopify style: the first paragraph cross-refers to "Forward-looking Statements".
+    text = ("Results\n2026 Outlook\nThe outlook that follows is forward-looking information. "
+            "See \"Forward-looking Statements\" at the end of this press release.\n"
+            "For the third quarter of 2026, we expect:\n"
+            "• Revenue to grow at a low-thirties percentage rate;\n"
+            "Forward-looking Statements\nBoilerplate.")
+    out = edgar.extract_outlook(text)
+    assert "low-thirties" in out and "Boilerplate" not in out
+
+
+def test_receivables_fall_back_to_other_tags(monkeypatch):
+    facts = {"facts": {"us-gaap": {
+        "RevenueFromContractWithCustomerExcludingAssessedTax": {"units": {"USD": [
+            _fact("2026-04-01", "2026-06-30", 3_583.0, "2026-08-05")]}},
+        "AccountsAndOtherReceivablesNetCurrent": {"units": {"USD": [
+            _fact(None, "2026-06-30", 466.0, "2026-08-05")]}},
+    }}}
+    monkeypatch.setattr(edgar, "lookup_cik", lambda t: 1)
+    monkeypatch.setattr(edgar, "_company_facts", lambda c: facts)
+    monkeypatch.setattr(edgar, "_submissions", lambda c: {})
+    monkeypatch.setattr(edgar, "latest_earnings_release", lambda c, d: None)
+    snap = edgar.get_company_snapshot("SHOP", date(2026, 9, 1))
+    assert snap["quarters"][-1]["receivables"] == 466.0
+
+
 def test_html_to_text_strips_scripts_and_controls():
     raw = "<p>Hello</p><script>ignore()</script><div>W\x07orld&amp;</div>"
     assert edgar._html_to_text(raw) == "Hello\nW orld&"
@@ -122,6 +148,25 @@ def test_latest_earnings_release_respects_filed_date(monkeypatch):
     assert rel["filed"] == date(2026, 5, 26)
     assert "000126000095" in fetched[0]
     assert "$875M" in rel["outlook"]
+
+
+def test_latest_earnings_release_finds_spelled_out_exhibit_name(monkeypatch):
+    subs = {"filings": {"recent": {"form": ["8-K"], "items": ["2.02"],
+                                   "filingDate": ["2026-08-05"],
+                                   "accessionNumber": ["0001-26-000046"]}}}
+    monkeypatch.setattr(edgar, "_submissions", lambda cik: subs)
+    names = ["shop-20260805.htm", "exhibit991pressreleaseq220.htm"]
+
+    def fake_fetch(url):
+        if url.endswith("index.json"):
+            return ('{"directory": {"item": [%s]}}'
+                    % ", ".join('{"name": "%s"}' % n for n in names)).encode()
+        return b"<p>2026 Outlook</p><p>For Q3 we expect revenue growth in the low thirties.</p>"
+
+    monkeypatch.setattr(edgar, "_fetch", fake_fetch)
+    rel = edgar.latest_earnings_release(1594805, date(2026, 9, 1))
+    assert rel["url"].endswith("exhibit991pressreleaseq220.htm")
+    assert "low thirties" in rel["outlook"]
 
 
 class _Resp:

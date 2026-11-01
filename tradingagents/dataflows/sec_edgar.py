@@ -55,6 +55,11 @@ DEFERRED_PAIRS = (
     ("ContractWithCustomerLiabilityCurrent", "ContractWithCustomerLiabilityNoncurrent"),
     ("DeferredRevenueCurrent", "DeferredRevenueNoncurrent"),
 )
+RECEIVABLE_CONCEPTS = (
+    "AccountsReceivableNetCurrent",
+    "AccountsAndOtherReceivablesNetCurrent",
+    "ReceivablesNetCurrent",
+)
 SBC_CONCEPTS = ("ShareBasedCompensation", "AllocatedShareBasedCompensationExpense")
 BUYBACK_CONCEPTS = ("PaymentsForRepurchaseOfCommonStock", "PaymentsForRepurchaseOfEquity")
 ACQUISITION_CONCEPTS = ("PaymentsToAcquireBusinessesNetOfCashAcquired",)
@@ -348,12 +353,14 @@ def extract_outlook(text: str) -> str | None:
         offset += len(line)
     if start is None:
         return None
-    tail = lowered[start + 10:]
-    end = min(
-        (tail.find(marker) for marker in _OUTLOOK_END_MARKERS if tail.find(marker) > 0),
-        default=OUTLOOK_MAX_CHARS,
-    )
-    return text[start: start + 10 + min(end, OUTLOOK_MAX_CHARS)].strip()
+    # The first paragraph under the heading is often a disclaimer that itself
+    # mentions "forward-looking statements"; only end markers after it count.
+    body = lowered.find("\n", start) + 1 or len(lowered)
+    floor = lowered.find("\n", body)
+    floor = floor if floor > 0 else body
+    hits = [i for i in (lowered.find(m, floor) for m in _OUTLOOK_END_MARKERS) if i > 0]
+    end = min(hits + [start + OUTLOOK_MAX_CHARS])
+    return text[start:end].strip()
 
 
 HEADLINE_MAX_CHARS = 400
@@ -394,8 +401,8 @@ def latest_earnings_release(cik: int, as_of: date) -> dict | None:
     htm = [n for n in docs if n.lower().endswith((".htm", ".html"))]
     # Prefer Exhibit 99.1 (the press release) over 99.2+ (supplements, slides).
     exhibit = (
-        next((n for n in htm if re.search(r"(?i)(ex-?99[-_.]?0?1|_991|991\.)", n)), None)
-        or next((n for n in htm if re.search(r"(?i)ex-?99", n)), None)
+        next((n for n in htm if re.search(r"(?i)(ex(hibit)?-?99[-_.]?0?1|_991|991\.)", n)), None)
+        or next((n for n in htm if re.search(r"(?i)ex(hibit)?-?99", n)), None)
     )
     if not exhibit or "/" in exhibit or ".." in exhibit:
         return {"filed": filed, "url": base, "outlook": None, "headline": None}
@@ -436,7 +443,9 @@ def get_company_snapshot(ticker: str, as_of: date) -> dict | None:
     subs = _submissions(cik)
 
     revenue = quarterly_revenue(facts, as_of)
-    receivables = _instants(facts, "AccountsReceivableNetCurrent", as_of)
+    # Freshest receivables tag wins (companies switch tags over time).
+    receivables = max((_instants(facts, c, as_of) for c in RECEIVABLE_CONCEPTS),
+                      key=lambda r: max(r, default=date.min))
     for q in revenue:
         ar = receivables.get(q["end"])
         days = (q["end"] - q["start"]).days + 1
