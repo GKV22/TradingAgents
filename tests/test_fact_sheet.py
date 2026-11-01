@@ -52,9 +52,10 @@ SNAP = {
                          date(2026, 4, 30): 2.4772e9, date(2026, 7, 31): 2.9258e9},
     "ttm_eps": {"end": date(2026, 7, 31), "net_income": -63.2e6, "diluted_shares": 160.2e6,
                 "eps": -0.3945},
-    "sbc_annual": {"end": date(2026, 7, 31), "value": 821.9e6},
-    "acquisitions_annual": None,
-    "buybacks_annual": {"end": date(2021, 7, 31), "value": 0.0},
+    "sbc": {"end": date(2026, 7, 31), "value": 821.9e6, "period": "fy"},
+    "acquisitions": None,
+    "buybacks": {"end": date(2021, 7, 31), "value": 0.0, "period": "fy"},
+    "fcf": {"end": date(2026, 7, 31), "ocf": 1_000e6, "capex": 220.9e6, "fcf": 779.1e6},
     "earnings_release": {"filed": date(2026, 9, 3), "url": "https://www.sec.gov/x",
                          "headline": "Q4 results", "outlook": "Financial Outlook\nRevenue $3.9B ```"},
 }
@@ -76,7 +77,11 @@ def test_core_figures(patched):
     assert "Fiscal year ends **July 31**" in out
     assert "| 2026-07-31 | $898.2M | +24.9% | $1,149.1M | 118 |" in out
     assert "(+27.4% YoY)" in out  # RPO
-    assert "Share buybacks: none reported since fiscal year ended 2021-07-31" in out
+    assert "Share buybacks: no XBRL value since period ended 2021-07-31" in out
+    assert "Cash paid for acquisitions: not found in XBRL filings" in out
+    assert "Stock-based compensation (fiscal year ended 2026-07-31): $821.9M" in out
+    assert "free cash flow (to 2026-07-31): **$779.1M**" in out
+    assert "levered definition" in out
     assert "Revenue $3.9B" in out and "```text" in out
     assert out.count("```") == 2  # embedded fence neutralised
 
@@ -166,3 +171,18 @@ def test_crypto_has_price_only(patched):
     out = fs.build_fact_sheet("BTC-USD", "2026-10-23", asset_type="crypto")
     assert "Decision price" in out and "Balance sheet" not in out
     assert isinstance(timedelta, type)
+
+
+def test_ttm_buybacks_rendered_as_trailing_twelve_months(patched, monkeypatch):
+    snap = {**SNAP, "buybacks": {"end": date(2026, 6, 30), "value": 1_911e6, "period": "ttm"}}
+    monkeypatch.setattr(fs.sec_edgar, "get_company_snapshot", lambda t, d: snap)
+    out = fs.build_fact_sheet("ZS", "2026-10-23")
+    assert "Share buybacks (trailing 12 months to 2026-06-30): $1,911.0M" in out
+
+
+def test_ytd_buybacks_rendered(patched, monkeypatch):
+    snap = {**SNAP, "buybacks": {"end": date(2026, 6, 30), "value": 1_911e6, "period": "ytd",
+                                 "months": 6}}
+    monkeypatch.setattr(fs.sec_edgar, "get_company_snapshot", lambda t, d: snap)
+    out = fs.build_fact_sheet("ZS", "2026-10-23")
+    assert "Share buybacks (fiscal year to date, 6 months to 2026-06-30): $1,911.0M" in out

@@ -353,7 +353,7 @@ def get_fundamentals(
             ("PEG Ratio", info.get("pegRatio")),
             ("Price to Book", info.get("priceToBook")),
             ("EPS (TTM)", info.get("trailingEps")),
-            ("Forward EPS", info.get("forwardEps")),
+            ("Forward EPS (analyst consensus, usually adjusted/non-GAAP)", info.get("forwardEps")),
             ("Dividend Yield", info.get("dividendYield")),
             ("Beta", info.get("beta")),
             ("52 Week High", info.get("fiftyTwoWeekHigh")),
@@ -371,7 +371,8 @@ def get_fundamentals(
             ("Debt to Equity", info.get("debtToEquity")),
             ("Current Ratio", info.get("currentRatio")),
             ("Book Value", info.get("bookValue")),
-            ("Free Cash Flow", info.get("freeCashflow")),
+            ("Free Cash Flow (vendor levered definition; differs from operating cash flow - capex)",
+             info.get("freeCashflow")),
         ]
 
         lines = []

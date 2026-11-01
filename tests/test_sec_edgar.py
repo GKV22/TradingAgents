@@ -180,3 +180,69 @@ def test_ttm_gaap_eps_uses_annual_shares_for_fiscal_q4():
     assert eps["eps"] == pytest.approx(-63.2 / 160.2)
     # Before the 10-K, Q4 net income is unknown: no TTM figure.
     assert edgar.ttm_gaap_eps(facts, date(2026, 8, 15)) is None
+
+
+# Cash-flow items: only year-to-date totals in 10-Qs (calendar fiscal year).
+CASH_FACTS = {"facts": {"us-gaap": {
+    "PaymentsForRepurchaseOfCommonStock": {"units": {"USD": [
+        _fact("2025-01-01", "2025-06-30", 0.0, "2025-08-06"),
+        _fact("2025-01-01", "2025-09-30", 0.0, "2025-11-05"),
+        _fact("2025-01-01", "2025-12-31", 100.0, "2026-02-15", "10-K"),
+        _fact("2026-01-01", "2026-03-31", 491.0, "2026-05-07"),
+        _fact("2026-01-01", "2026-06-30", 1_911.0, "2026-08-06"),
+    ]}},
+    "NetCashProvidedByUsedInOperatingActivities": {"units": {"USD": [
+        _fact("2025-01-01", "2025-09-30", 1_200.0, "2025-11-05"),
+        _fact("2025-01-01", "2025-12-31", 2_000.0, "2026-02-15", "10-K"),
+        _fact("2026-01-01", "2026-03-31", 481.0, "2026-05-07"),
+        _fact("2026-01-01", "2026-06-30", 1_139.0, "2026-08-06"),
+    ]}},
+    "PaymentsToAcquirePropertyPlantAndEquipment": {"units": {"USD": [
+        _fact("2025-01-01", "2025-09-30", 30.0, "2025-11-05"),
+        _fact("2025-01-01", "2025-12-31", 40.0, "2026-02-15", "10-K"),
+        _fact("2026-01-01", "2026-03-31", 5.0, "2026-05-07"),
+        _fact("2026-01-01", "2026-06-30", 9.0, "2026-08-06"),
+    ]}},
+}}}
+
+
+def test_quarters_derived_from_year_to_date_totals():
+    q = edgar.quarterly_flow(CASH_FACTS, ("PaymentsForRepurchaseOfCommonStock",), date(2026, 9, 1))
+    assert q[(date(2026, 4, 1), date(2026, 6, 30))] == pytest.approx(1_420.0)
+    assert q[(date(2025, 10, 1), date(2025, 12, 31))] == pytest.approx(100.0)
+
+
+def test_buybacks_ttm_built_from_10q_year_to_date():
+    # FY2025 10-K shows only $100 of buybacks; H1 2026 10-Qs show $1,911 more.
+    ttm = edgar._ttm_or_annual(CASH_FACTS, edgar.BUYBACK_CONCEPTS, date(2026, 9, 1))
+    assert ttm == {"end": date(2026, 6, 30), "value": pytest.approx(2_011.0), "period": "ttm"}
+    # Before the H1 10-Q only three quarters are derivable: the Q1 year-to-date
+    # total is fresher than the FY2025 10-K, so it is shown (never "none").
+    ytd = edgar._ttm_or_annual(CASH_FACTS, edgar.BUYBACK_CONCEPTS, date(2026, 6, 1))
+    assert ytd == {"end": date(2026, 3, 31), "value": pytest.approx(491.0),
+                   "period": "ytd", "months": 3}
+    fy = edgar._ttm_or_annual(CASH_FACTS, edgar.BUYBACK_CONCEPTS, date(2026, 3, 1))
+    assert fy["period"] == "fy" and fy["value"] == pytest.approx(100.0)
+
+
+def test_ttm_free_cash_flow():
+    facts = {"facts": {"us-gaap": {
+        k: {"units": {"USD": [
+            _fact("2025-07-01", "2025-09-30", v[0], "2025-11-05"),
+            _fact("2025-10-01", "2025-12-31", v[1], "2026-02-15", "10-K"),
+            _fact("2026-01-01", "2026-03-31", v[2], "2026-05-07"),
+            _fact("2026-01-01", "2026-06-30", v[2] + v[3], "2026-08-06"),
+        ]}} for k, v in (("NetCashProvidedByUsedInOperatingActivities", (500.0, 738.0, 481.0, 658.0)),
+                         ("PaymentsToAcquirePropertyPlantAndEquipment", (8.0, 8.0, 5.0, 4.0)))
+    }}}
+    fcf = edgar.ttm_free_cash_flow(facts, date(2026, 9, 1))
+    assert fcf["end"] == date(2026, 6, 30)
+    assert fcf["ocf"] == pytest.approx(2_377.0)
+    assert fcf["fcf"] == pytest.approx(2_377.0 - 25.0)
+
+
+def test_headline_shortened_at_sentence_boundary():
+    text = "Shopify reports results. " + "AI representation grew strongly " * 20
+    out = edgar._shorten(text, limit=100)
+    assert out == "Shopify reports results. [shortened by TradingAgents]"
+    assert edgar._shorten("Short headline") == "Short headline"

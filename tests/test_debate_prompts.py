@@ -38,10 +38,20 @@ def test_bear_engages_and_sees_own_history():
 
 def test_bull_engages_and_sees_own_history():
     llm = _llm()
-    create_bull_researcher(llm)(_state(bull_history="MY EARLIER BULL POINT"))
+    create_bull_researcher(llm)(_state(bull_history="MY EARLIER BULL POINT",
+                                       current_response="BEAR SAYS Y"))
     p = _prompt(llm)
     assert "point by point" in p
     assert "MY EARLIER BULL POINT" in p
+    assert "BEAR SAYS Y" in p
+
+
+def test_bull_opening_round_makes_case_outright():
+    llm = _llm()
+    create_bull_researcher(llm)(_state())
+    p = _prompt(llm)
+    assert "You open the debate" in p
+    assert "point by point" not in p
 
 
 def test_aggressive_advocates_upside():

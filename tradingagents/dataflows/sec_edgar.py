@@ -56,6 +56,10 @@ DEFERRED_PAIRS = (
     ("DeferredRevenueCurrent", "DeferredRevenueNoncurrent"),
 )
 SBC_CONCEPTS = ("ShareBasedCompensation", "AllocatedShareBasedCompensationExpense")
+BUYBACK_CONCEPTS = ("PaymentsForRepurchaseOfCommonStock", "PaymentsForRepurchaseOfEquity")
+ACQUISITION_CONCEPTS = ("PaymentsToAcquireBusinessesNetOfCashAcquired",)
+OCF_CONCEPTS = ("NetCashProvidedByUsedInOperatingActivities",)
+CAPEX_CONCEPTS = ("PaymentsToAcquirePropertyPlantAndEquipment",)
 
 _OUTLOOK_HEADINGS = ("outlook", "guidance")
 _OUTLOOK_END_MARKERS = (
@@ -198,8 +202,10 @@ def quarterly_flow(facts: dict, concepts: tuple[str, ...], as_of: date,
     """Quarterly values of an additive flow (revenue, net income), keyed (start, end).
 
     Fiscal Q4 is rarely tagged as a quarter (only the 10-K annual is), so it is
-    derived as FY minus Q1-Q3. When several concepts exist, the one with the
-    freshest data is used (companies switch tags over time).
+    derived as FY minus Q1-Q3. Cash-flow items are often tagged only
+    year-to-date (6 and 9 months), so a quarter is also derived as the
+    difference between consecutive year-to-date totals. When several concepts
+    exist, the one with the freshest data is used (companies switch tags over time).
     """
     candidates = [_entries(facts, c, as_of, unit) for c in concepts]
     entries = max(candidates, key=lambda es: es[-1]["end"] if es else "", default=[])
@@ -207,6 +213,16 @@ def quarterly_flow(facts: dict, concepts: tuple[str, ...], as_of: date,
         (_d(e["start"]), _d(e["end"])): float(e["val"])
         for e in entries if 80 <= (_duration_days(e) or 0) <= 100
     }
+    ytd: dict[date, list[dict]] = {}
+    for e in entries:
+        if 80 <= (_duration_days(e) or 0) <= 380:
+            ytd.setdefault(_d(e["start"]), []).append(e)
+    for group in ytd.values():
+        group.sort(key=lambda e: e["end"])
+        for prev, cur in zip(group, group[1:]):
+            key = (_d(prev["end"]) + timedelta(days=1), _d(cur["end"]))
+            if 80 <= (key[1] - key[0]).days + 1 <= 100 and key not in quarters:
+                quarters[key] = float(cur["val"]) - float(prev["val"])
     for e in entries:
         if 350 <= (_duration_days(e) or 0) <= 380:
             fy_start, fy_end = _d(e["start"]), _d(e["end"])
@@ -246,6 +262,42 @@ def ttm_gaap_eps(facts: dict, as_of: date) -> dict | None:
     net = sum(v for _, v in last4)
     return {"end": end, "net_income": net, "diluted_shares": float(shares[-1]["val"]),
             "eps": net / float(shares[-1]["val"])}
+
+
+def ttm_flow(facts: dict, concepts: tuple[str, ...], as_of: date) -> dict | None:
+    """Sum of the latest four contiguous quarters of a flow, or None."""
+    last4 = sorted(quarterly_flow(facts, concepts, as_of).items(), key=lambda kv: kv[0][1])[-4:]
+    if len(last4) < 4 or (last4[-1][0][1] - last4[0][0][0]).days > 380:
+        return None
+    return {"end": last4[-1][0][1], "value": sum(v for _, v in last4), "period": "ttm"}
+
+
+def _ttm_or_annual(facts: dict, concepts: tuple[str, ...], as_of: date) -> dict | None:
+    """TTM value when four quarters are derivable, else the latest reported
+    fiscal year or year-to-date total, whichever ends later."""
+    ttm = ttm_flow(facts, concepts, as_of)
+    cumulative = []
+    for concept in concepts:
+        cumulative += [e for e in _entries(facts, concept, as_of)
+                       if 80 <= (_duration_days(e) or 0) <= 380]
+    latest = max(cumulative, key=lambda e: (e["end"], _duration_days(e)), default=None)
+    if ttm and (not latest or ttm["end"] >= _d(latest["end"])):
+        return ttm
+    if not latest:
+        return None
+    days = _duration_days(latest)
+    return {"end": _d(latest["end"]), "value": float(latest["val"]),
+            "period": "fy" if days >= 350 else "ytd", "months": round(days / 30.4)}
+
+
+def ttm_free_cash_flow(facts: dict, as_of: date) -> dict | None:
+    """TTM operating cash flow minus capital expenditure (PP&E), same quarters."""
+    ocf = ttm_flow(facts, OCF_CONCEPTS, as_of)
+    capex = ttm_flow(facts, CAPEX_CONCEPTS, as_of)
+    if not ocf or not capex or ocf["end"] != capex["end"]:
+        return None
+    return {"end": ocf["end"], "ocf": ocf["value"], "capex": capex["value"],
+            "fcf": ocf["value"] - capex["value"]}
 
 
 def _latest_annual(facts: dict, concepts: tuple[str, ...], as_of: date) -> dict | None:
@@ -304,6 +356,21 @@ def extract_outlook(text: str) -> str | None:
     return text[start: start + 10 + min(end, OUTLOOK_MAX_CHARS)].strip()
 
 
+HEADLINE_MAX_CHARS = 400
+
+
+def _shorten(text: str, limit: int = HEADLINE_MAX_CHARS) -> str:
+    """Collapse whitespace; if too long, cut at the last sentence end and say so,
+    so a mid-word cut is not mistaken for a broken data feed."""
+    text = " ".join(text.split())
+    if len(text) <= limit:
+        return text
+    cut = text[:limit]
+    end = max(cut.rfind(". "), cut.rfind("! "), cut.rfind("? "))
+    cut = cut[:end + 1] if end > 0 else cut[:cut.rfind(" ")] if " " in cut else cut
+    return cut + " [shortened by TradingAgents]"
+
+
 def latest_earnings_release(cik: int, as_of: date) -> dict | None:
     """Latest 8-K with Item 2.02 filed on or before ``as_of``, with its outlook."""
     recent = _submissions(cik).get("filings", {}).get("recent", {})
@@ -333,11 +400,11 @@ def latest_earnings_release(cik: int, as_of: date) -> dict | None:
     if not exhibit or "/" in exhibit or ".." in exhibit:
         return {"filed": filed, "url": base, "outlook": None, "headline": None}
     text = _html_to_text(_fetch(base + exhibit).decode("utf-8", "replace"))
-    headline_match = re.search(r"(?i)exhibit 99\.1\s*(.{0,400})", text, re.S)
+    headline_match = re.search(r"(?i)exhibit 99\.1\s*(.{0,600})", text, re.S)
     return {
         "filed": filed,
         "url": base + exhibit,
-        "headline": " ".join(headline_match.group(1).split())[:400] if headline_match else None,
+        "headline": _shorten(headline_match.group(1)) if headline_match else None,
         "outlook": extract_outlook(text),
     }
 
@@ -387,11 +454,10 @@ def get_company_snapshot(ticker: str, as_of: date) -> dict | None:
         "receivables_by_quarter": receivables,
         "rpo": _instants(facts, "RevenueRemainingPerformanceObligation", as_of),
         "deferred_revenue": deferred_revenue(facts, as_of),
-        "sbc_annual": _latest_annual(facts, SBC_CONCEPTS, as_of),
-        "acquisitions_annual": _latest_annual(
-            facts, ("PaymentsToAcquireBusinessesNetOfCashAcquired",), as_of
-        ),
-        "buybacks_annual": _latest_annual(facts, ("PaymentsForRepurchaseOfCommonStock",), as_of),
+        "sbc": _ttm_or_annual(facts, SBC_CONCEPTS, as_of),
+        "acquisitions": _ttm_or_annual(facts, ACQUISITION_CONCEPTS, as_of),
+        "buybacks": _ttm_or_annual(facts, BUYBACK_CONCEPTS, as_of),
+        "fcf": ttm_free_cash_flow(facts, as_of),
         "ttm_eps": ttm_gaap_eps(facts, as_of),
         "earnings_release": latest_earnings_release(cik, as_of),
     }

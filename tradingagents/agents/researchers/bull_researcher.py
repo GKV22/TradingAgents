@@ -16,6 +16,19 @@ def create_bull_researcher(llm):
         news_report = state["news_report"]
         fundamentals_report = state["fundamentals_report"]
         instrument_context = get_instrument_context_from_state(state)
+        if current_response.strip():
+            engagement = (
+                "Answer the last bear argument point by point — quote the specific claim, then "
+                "concede or rebut it with data. Do not restate arguments you already made in earlier "
+                "rounds (listed below); every round must add new evidence or a new rebuttal. If you "
+                "have nothing new to add, say so in one sentence and summarise where the debate stands."
+            )
+        else:
+            engagement = (
+                "You open the debate: there is no bear argument yet. Make your case outright "
+                "and pre-empt the strongest bear objections visible in the reports. Do not "
+                "mention or ask for a missing bear argument."
+            )
         asset_type = state.get("asset_type", "stock")
         target_label = "stock" if asset_type == "stock" else "asset"
         fundamentals_label = (
@@ -31,7 +44,7 @@ Key points to focus on:
 - Competitive Advantages: Cite specific factors from the data — do not assert advantages without evidence.
 - Positive Indicators: Reference specific financial metrics, trends, and news items from the provided reports.
 - Bear Counterpoints: Address the bear's specific claims with data from the reports; if a bear claim cannot be refuted with provided data, concede it rather than speculate.
-- Engagement: Answer the last bear argument point by point — quote the specific claim, then concede or rebut it with data. Do not restate arguments you already made in earlier rounds (listed below); every round must add new evidence or a new rebuttal. If you have nothing new to add, say so in one sentence and summarise where the debate stands.
+- Engagement: {engagement}
 - Confidence Calibration: Label forward projections explicitly as scenarios or estimates, not certainties. Avoid superlatives ("generational", "definitive", "certain") unless directly supported by a cited source. Never assert timing of recoveries or future FCF figures unless the data explicitly supports them.
 
 Resources available:
@@ -42,7 +55,7 @@ Latest world affairs news: {news_report}
 {fundamentals_label}: {fundamentals_report}
 Conversation history of the debate: {history}
 Your own previous arguments (do not repeat them): {bull_history}
-Last bear argument: {current_response}
+Last bear argument: {current_response or '(none yet — you open the debate)'}
 Use this information to deliver a compelling bull argument, refute the bear's concerns, and engage in a dynamic debate that demonstrates the strengths of the bull position.
 """ + get_language_instruction()
 
