@@ -75,6 +75,7 @@ Every case where one agent states a fact that directly contradicts another agent
 - Resolution: which is correct based on data, or "cannot resolve without external source"
 - Severity: CRITICAL (affects investment conclusion) / MODERATE / MINOR
 Before rating a conflict, check whether the fact sheet settles it: the fact sheet takes precedence over figures quoted in news or social posts, and over vendor fields the fact sheet labels as a different definition (e.g. levered free cash flow). Such differences are at most MINOR, not unresolved conflicts.
+Only conflicting statements of fact or arithmetic count here. Differences of judgement — scenario probability weights, choice of valuation method, interpretation of the same figures, or BUY vs HOLD — are the debate working as intended: mention them at most as MINOR, never CRITICAL or MODERATE.
 
 ## 1b. Fact-Sheet and Arithmetic Recheck
 The instrument context above contains a **Fact sheet** built in code (decision price, balance sheet, SEC quarterly data, company guidance, consensus). First, check every input an agent cites — price, shares, net cash, fiscal year end, growth rates, receivable days, guidance, consensus, price targets — against the fact sheet, and flag each mismatch or each figure the fact sheet contradicts (e.g. a scenario growth rate outside company guidance without saying so). Then recompute every derived number from the raw figures — do not trust any agent's arithmetic. At minimum check:

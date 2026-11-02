@@ -88,6 +88,8 @@ def test_critic_prompt_lists_tag_vocabulary():
     prompt = llm.invoke.call_args.args[0]
     assert "Arithmetic Recheck" in prompt
     assert "financial_services" in prompt and "banks" in prompt
+    # MOD run: differing scenario weights were rated a CRITICAL contradiction.
+    assert "Differences of judgement" in prompt and "never CRITICAL" in prompt
 
 
 def test_web_defaults_include_report_critic_role():
