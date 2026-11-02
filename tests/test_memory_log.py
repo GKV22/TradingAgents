@@ -723,7 +723,7 @@ class TestPortfolioManagerInjection:
         md = result["final_trade_decision"]
         assert "**Rating**: Overweight" in md
         assert "**Executive Summary**: Build position gradually" in md
-        assert "**Investment Thesis**: AI capex cycle" in md
+        assert "**Investment Thesis**:\n\nAI capex cycle" in md
         assert "**Price Target**: 215.0" in md
         assert "**Time Horizon**: 3-6 months" in md
 

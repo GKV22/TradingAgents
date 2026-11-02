@@ -18,6 +18,7 @@ so that:
 
 from __future__ import annotations
 
+import re
 from enum import Enum
 from typing import Literal
 
@@ -246,7 +247,8 @@ class PortfolioDecision(BaseModel):
     )
     investment_thesis: str = Field(
         description=(
-            "Must follow this exact five-section structure in markdown:\n\n"
+            "Must follow this exact five-section structure in markdown. Use markdown "
+            "pipe tables, never HTML tags, and put each heading on its own line:\n\n"
             "## 1. Verified Facts\n"
             "A table of confirmed values pulled directly from analyst reports: "
             "current price, 50-day SMA, 200-day SMA, 52-week high/low, "
@@ -293,6 +295,51 @@ class PortfolioDecision(BaseModel):
         return _coerce_optional_float(v)
 
 
+_HTML_TABLE = re.compile(r"(?is)<table\b.*?</table>")
+_HTML_ROW = re.compile(r"(?is)<tr\b[^>]*>(.*?)</tr>")
+_HTML_CELL = re.compile(r"(?is)<t([hd])\b[^>]*>(.*?)</t[hd]>")
+_HTML_TAG = re.compile(r"<[^>]+>")
+_INLINE_HEADING = re.compile(r"(?<=\S)[ \t]+(#{2,4} )")
+_INDENTED_HEADING = re.compile(r"(?m)^[ \t]+(#{2,4} )")
+# The thesis section titles are fixed by the schema, so a title followed by
+# body text on the same line can be split exactly.
+_TITLE_THEN_BODY = re.compile(
+    r"(?m)^(#{2,4} \d\. (?:Verified Facts|Disputed Assumptions|Scenario Model|Decision"
+    r"|Data Quality Report))[ \t]+(?=\S)")
+_INLINE_LIST_ITEM = re.compile(r"(?<=[.!?:])[ \t]+(\d{1,2}\. )(?=[A-Z])")
+
+
+def _html_table_to_markdown(match: re.Match) -> str:
+    rows = []
+    for row in _HTML_ROW.findall(match.group(0)):
+        cells = [" ".join(_HTML_TAG.sub(" ", c).split()).replace("|", "/")
+                 for _, c in _HTML_CELL.findall(row)]
+        if cells:
+            rows.append(cells)
+    if not rows:
+        return match.group(0)
+    width = max(len(r) for r in rows)
+    rows = [r + [""] * (width - len(r)) for r in rows]
+    lines = ["| " + " | ".join(rows[0]) + " |", "|" + "---|" * width]
+    lines += ["| " + " | ".join(r) + " |" for r in rows[1:]]
+    return "\n\n" + "\n".join(lines) + "\n\n"
+
+
+def tidy_markdown(text: str) -> str:
+    """Make model-written markdown render: HTML tables become pipe tables and
+    headings run into a paragraph get their own line. Reports render with raw
+    HTML disabled, so an HTML table would otherwise print as literal tags."""
+    text = _HTML_TABLE.sub(_html_table_to_markdown, text)
+    text = _INLINE_HEADING.sub(r"\n\n\1", text)
+    text = _INDENTED_HEADING.sub(r"\1", text)
+    text = _TITLE_THEN_BODY.sub(r"\1\n\n", text)
+    text = "\n".join(line if line.lstrip().startswith("|") else _INLINE_LIST_ITEM.sub(r"\n\1", line)
+                     for line in text.split("\n"))
+    text = re.sub(r"[ \t]+\n", "\n", text)
+    text = re.sub(r"\n\n[ \t]+", "\n\n", text)
+    return re.sub(r"\n{3,}", "\n\n", text).strip()
+
+
 def render_pm_decision(decision: PortfolioDecision) -> str:
     """Render a PortfolioDecision back to the markdown shape the rest of the system expects.
 
@@ -306,7 +353,9 @@ def render_pm_decision(decision: PortfolioDecision) -> str:
         "",
         f"**Executive Summary**: {decision.executive_summary}",
         "",
-        f"**Investment Thesis**: {decision.investment_thesis}",
+        "**Investment Thesis**:",
+        "",
+        tidy_markdown(decision.investment_thesis),
     ]
     if decision.price_target is not None:
         parts.extend(["", f"**Price Target**: {decision.price_target}"])
