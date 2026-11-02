@@ -122,3 +122,12 @@ def test_capabilities_dataclass_is_frozen():
     caps = get_capabilities("deepseek-chat")
     with pytest.raises(FrozenInstanceError):
         caps.supports_tool_choice = False  # type: ignore[misc]
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("alias", ["deepseek-flash", "deepseek-pro"])
+def test_deepseek_aliases_get_thinking_quirks(alias):
+    # A settings alias fell to the generic default and 400'd:
+    # "Thinking mode does not support this tool_choice".
+    assert get_capabilities(alias).supports_tool_choice is False
+    assert get_capabilities("deepseek-chat").supports_tool_choice is True

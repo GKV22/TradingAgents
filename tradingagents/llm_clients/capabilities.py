@@ -112,6 +112,9 @@ _BY_ID: dict[str, ModelCapabilities] = {
 _BY_PATTERN: list[tuple[re.Pattern[str], ModelCapabilities]] = [
     (re.compile(r"^deepseek-v\d"), _DEEPSEEK_THINKING),
     (re.compile(r"^deepseek-reasoner"), _DEEPSEEK_THINKING),
+    # Aliases typed in settings ("deepseek-flash", "deepseek-pro") reach the
+    # same thinking models; the generic default 400s on tool_choice there.
+    (re.compile(r"^deepseek-(?!chat)"), _DEEPSEEK_THINKING),
     (re.compile(r"^MiniMax-M\d"), _MINIMAX_THINKING),
 ]
 
