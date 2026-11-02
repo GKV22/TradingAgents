@@ -220,6 +220,10 @@ class TradingAgentsGraph:
         if max_retries is not None and max_retries != "":
             kwargs["max_retries"] = _coerce_max_retries(max_retries)
 
+        timeout = self.config.get("llm_timeout")
+        if timeout is not None and timeout != "":
+            kwargs["timeout"] = float(timeout)
+
         return kwargs
 
     def _build_role_llm(self, role_cfg: dict) -> Any:
@@ -249,6 +253,10 @@ class TradingAgentsGraph:
         max_retries = self.config.get("llm_max_retries")
         if max_retries is not None and max_retries != "":
             kwargs["max_retries"] = _coerce_max_retries(max_retries)
+
+        timeout = self.config.get("llm_timeout")
+        if timeout is not None and timeout != "":
+            kwargs["timeout"] = float(timeout)
 
         if self.callbacks:
             kwargs["callbacks"] = self.callbacks

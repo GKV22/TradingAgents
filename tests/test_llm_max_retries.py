@@ -98,3 +98,38 @@ def test_env_override_sets_config(monkeypatch):
     # None-default key: env value arrives as a string and is coerced downstream.
     assert dc.DEFAULT_CONFIG["llm_max_retries"] == "8"
     assert _coerce_max_retries(dc.DEFAULT_CONFIG["llm_max_retries"]) == 8
+
+
+# --- request timeout --------------------------------------------------------
+
+@pytest.mark.unit
+@pytest.mark.parametrize("provider", ["openai", "anthropic", "google", "deepseek"])
+def test_timeout_forwarded_across_providers(provider):
+    kwargs = _bare_graph({"llm_provider": provider, "llm_timeout": "300"})._get_provider_kwargs()
+    assert kwargs["timeout"] == 300.0
+
+
+@pytest.mark.unit
+def test_default_config_sets_a_timeout():
+    # Without one the SDK waits 600 s per attempt and a stalled call freezes the run.
+    from tradingagents.default_config import DEFAULT_CONFIG
+    assert 0 < DEFAULT_CONFIG["llm_timeout"] <= 600
+
+
+@pytest.mark.unit
+def test_timeout_reaches_per_role_clients(monkeypatch):
+    captured = {}
+
+    class _Client:
+        def get_llm(self):
+            return None
+
+    def fake_create(provider, model, base_url=None, **kwargs):
+        captured.update(kwargs)
+        return _Client()
+
+    monkeypatch.setattr("tradingagents.graph.trading_graph.create_llm_client", fake_create)
+    g = _bare_graph({"llm_timeout": 120})
+    g.callbacks = None
+    g._build_role_llm({"provider": "deepseek", "model": "deepseek-v4-flash"})
+    assert captured["timeout"] == 120.0
