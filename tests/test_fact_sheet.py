@@ -205,3 +205,26 @@ def test_missing_outlook_is_a_neutral_data_gap(patched, monkeypatch):
     out = fs.build_fact_sheet("ZS", "2026-10-23")
     gaps = out.split("### Data gaps")[1]
     assert "not as management silence or a negative signal" in gaps
+
+
+def test_convertible_notes_line_with_dilution(patched, monkeypatch):
+    notes = {"end": date(2026, 6, 30), "value": 1_471.7e6, "conversion_price": 254.53,
+             "hedge_payments": {"end": date(2026, 6, 30), "value": 88.9e6, "period": "ytd",
+                                "months": 6}}
+    monkeypatch.setattr(fs.sec_edgar, "get_company_snapshot",
+                        lambda t, d: {**SNAP, "convertible_notes": notes})
+    out = fs.build_fact_sheet("ZS", "2026-10-23")
+    # 1,471.7M / 254.53 = 5.78M shares; / 163.055M outstanding (fake balance sheet) = 3.5%
+    assert "Convertible notes (carrying value at 2026-06-30): **$1,471.7M**" in out
+    assert "conversion price $254.53 → up to ≈5.78M new shares (3.5% of shares outstanding)" in out
+    assert "Hedge payments (e.g. capped call) $88.9M" in out
+
+
+def test_convertible_notes_without_price_point_to_filing(patched, monkeypatch):
+    notes = {"end": date(2026, 7, 31), "value": 1_696.4e6, "conversion_price": None,
+             "hedge_payments": None}
+    monkeypatch.setattr(fs.sec_edgar, "get_company_snapshot",
+                        lambda t, d: {**SNAP, "convertible_notes": notes})
+    out = fs.build_fact_sheet("ZS", "2026-10-23")
+    assert "conversion price not tagged for this date in XBRL" in out
+    assert "new shares" not in out

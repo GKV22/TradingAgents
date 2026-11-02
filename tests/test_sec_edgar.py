@@ -291,3 +291,46 @@ def test_headline_shortened_at_sentence_boundary():
     out = edgar._shorten(text, limit=100)
     assert out == "Shopify reports results. [shortened by TradingAgents]"
     assert edgar._shorten("Short headline") == "Short headline"
+
+
+# ONTO-style: new convertible notes with a conversion price tagged at the same date.
+CONVERT_FACTS = {"facts": {"us-gaap": {
+    "ConvertibleLongTermNotesPayable": {"units": {"USD": [
+        _fact(None, "2026-06-30", 1_471.7e6, "2026-08-06"),
+    ]}},
+    "ConvertibleNotesPayableCurrent": {"units": {"USD": [
+        _fact(None, "2026-06-30", 10.0e6, "2026-08-06"),
+    ]}},
+    "DebtInstrumentConvertibleConversionPrice1": {"units": {"USD/shares": [
+        _fact(None, "2024-07-31", 150.8, "2024-09-10", "10-K"),
+        _fact(None, "2026-06-30", 254.53, "2026-08-06"),
+    ]}},
+    "PaymentsForProceedsFromHedgeFinancingActivities": {"units": {"USD": [
+        _fact("2026-01-04", "2026-06-30", 88.9e6, "2026-08-06"),
+    ]}},
+}}}
+
+
+def test_convertible_notes_sum_parts_and_take_same_date_conversion_price():
+    notes = edgar.convertible_notes(CONVERT_FACTS, date(2026, 10, 30))
+    assert notes["end"] == date(2026, 6, 30)
+    assert notes["value"] == pytest.approx(1_481.7e6)
+    assert notes["conversion_price"] == 254.53
+    assert notes["hedge_payments"]["value"] == pytest.approx(88.9e6)
+
+
+def test_convertible_conversion_price_from_older_notes_is_not_reused():
+    facts = {"facts": {"us-gaap": {
+        "ConvertibleLongTermNotesPayable": CONVERT_FACTS["facts"]["us-gaap"]["ConvertibleLongTermNotesPayable"],
+        "DebtInstrumentConvertibleConversionPrice1": {"units": {"USD/shares": [
+            _fact(None, "2024-07-31", 150.8, "2024-09-10", "10-K")]}},
+    }}}
+    notes = edgar.convertible_notes(facts, date(2026, 10, 30))
+    assert notes["conversion_price"] is None
+
+
+def test_convertible_notes_point_in_time_and_zero_balance():
+    assert edgar.convertible_notes(CONVERT_FACTS, date(2026, 8, 1)) is None  # not yet filed
+    zero = {"facts": {"us-gaap": {"ConvertibleDebtCurrent": {"units": {"USD": [
+        _fact(None, "2025-12-31", 0.0, "2026-02-15", "10-K")]}}}}}
+    assert edgar.convertible_notes(zero, date(2026, 10, 30)) is None

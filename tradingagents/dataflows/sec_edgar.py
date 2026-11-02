@@ -65,6 +65,11 @@ BUYBACK_CONCEPTS = ("PaymentsForRepurchaseOfCommonStock", "PaymentsForRepurchase
 ACQUISITION_CONCEPTS = ("PaymentsToAcquireBusinessesNetOfCashAcquired",)
 OCF_CONCEPTS = ("NetCashProvidedByUsedInOperatingActivities",)
 CAPEX_CONCEPTS = ("PaymentsToAcquirePropertyPlantAndEquipment",)
+CONVERTIBLE_TOTAL_CONCEPTS = ("ConvertibleNotesPayable", "ConvertibleDebt")
+CONVERTIBLE_NONCURRENT_CONCEPTS = ("ConvertibleLongTermNotesPayable", "ConvertibleDebtNoncurrent")
+CONVERTIBLE_CURRENT_CONCEPTS = ("ConvertibleNotesPayableCurrent", "ConvertibleDebtCurrent")
+CONVERSION_PRICE_CONCEPT = "DebtInstrumentConvertibleConversionPrice1"
+HEDGE_PAYMENT_CONCEPTS = ("PaymentsForProceedsFromHedgeFinancingActivities",)
 
 _OUTLOOK_HEADINGS = ("outlook", "guidance")
 _OUTLOOK_END_MARKERS = (
@@ -305,6 +310,31 @@ def ttm_free_cash_flow(facts: dict, as_of: date) -> dict | None:
             "fcf": ocf["value"] - capex["value"]}
 
 
+def convertible_notes(facts: dict, as_of: date) -> dict | None:
+    """Latest convertible-notes balance, with the conversion price only when it
+    is tagged for the same balance-sheet date (an older price may belong to
+    notes since repaid). None when the company has no non-zero balance."""
+    def at(concepts: tuple[str, ...], when: date) -> float | None:
+        return next((v for c in concepts
+                     if (v := _instants(facts, c, as_of).get(when)) is not None), None)
+
+    all_concepts = (CONVERTIBLE_TOTAL_CONCEPTS + CONVERTIBLE_NONCURRENT_CONCEPTS
+                    + CONVERTIBLE_CURRENT_CONCEPTS)
+    end = max((d for c in all_concepts for d in _instants(facts, c, as_of)), default=None)
+    if end is None:
+        return None
+    total = at(CONVERTIBLE_TOTAL_CONCEPTS, end)
+    if total is None:
+        total = (at(CONVERTIBLE_NONCURRENT_CONCEPTS, end) or 0) + (at(CONVERTIBLE_CURRENT_CONCEPTS, end) or 0)
+    if total <= 0:
+        return None
+    prices = {_d(e["end"]): float(e["val"])
+              for e in _entries(facts, CONVERSION_PRICE_CONCEPT, as_of, unit="USD/shares")}
+    price = prices.get(end)
+    return {"end": end, "value": total, "conversion_price": price if price and price > 0 else None,
+            "hedge_payments": _ttm_or_annual(facts, HEDGE_PAYMENT_CONCEPTS, as_of)}
+
+
 def _latest_annual(facts: dict, concepts: tuple[str, ...], as_of: date) -> dict | None:
     for concept in concepts:
         annual = [e for e in _entries(facts, concept, as_of)
@@ -467,6 +497,7 @@ def get_company_snapshot(ticker: str, as_of: date) -> dict | None:
         "acquisitions": _ttm_or_annual(facts, ACQUISITION_CONCEPTS, as_of),
         "buybacks": _ttm_or_annual(facts, BUYBACK_CONCEPTS, as_of),
         "fcf": ttm_free_cash_flow(facts, as_of),
+        "convertible_notes": convertible_notes(facts, as_of),
         "ttm_eps": ttm_gaap_eps(facts, as_of),
         "earnings_release": latest_earnings_release(cik, as_of),
     }

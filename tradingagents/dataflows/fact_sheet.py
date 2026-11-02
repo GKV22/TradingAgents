@@ -182,7 +182,8 @@ def _balance_section(sheet: _Sheet, ticker_obj, as_of: date, filed_period: date 
     return out
 
 
-def _sec_section(sheet: _Sheet, snap: dict, ev: float | None, as_of: date):
+def _sec_section(sheet: _Sheet, snap: dict, ev: float | None, as_of: date,
+                 shares: float | None = None):
     fye = _fye_label(snap.get("fiscal_year_end"))
     lf = snap.get("latest_filing")
     sheet.section("SEC filings (point-in-time; source: SEC EDGAR XBRL)")
@@ -244,6 +245,8 @@ def _sec_section(sheet: _Sheet, snap: dict, ev: float | None, as_of: date):
                   "Vendor 'Free Cash Flow' fields (e.g. yfinance) use a levered definition "
                   "and will differ; that difference is definitional, not a data conflict.")
 
+    _convertible_line(sheet, snap.get("convertible_notes"), shares, as_of)
+
     missing = []
     for label, key in (("Stock-based compensation", "sbc"),
                        ("Cash paid for acquisitions", "acquisitions"),
@@ -261,6 +264,26 @@ def _sec_section(sheet: _Sheet, snap: dict, ev: float | None, as_of: date):
     if missing:
         sheet.gaps.append(f"no recent SEC XBRL value for {', '.join(missing)} — the company may "
                           "use other tags; absence does not mean zero (see the cash-flow statement)")
+
+
+def _convertible_line(sheet: _Sheet, notes: dict | None, shares: float | None, as_of: date):
+    if not notes or (as_of - notes["end"]).days > 200:
+        return
+    line = f"Convertible notes (carrying value at {notes['end']}): **{_m(notes['value'])}**"
+    price = notes.get("conversion_price")
+    if price:
+        new_shares = notes["value"] / price
+        line += (f"; conversion price ${price:,.2f} → up to ≈{new_shares / 1e6:,.2f}M new shares"
+                 + (f" ({new_shares / shares * 100:.1f}% of shares outstanding)" if shares else "")
+                 + " if all converted into shares")
+    else:
+        line += ("; conversion price not tagged for this date in XBRL, so dilution cannot be "
+                 "computed from fetched data — state it as unknown; do not guess a conversion price")
+    hedge = notes.get("hedge_payments")
+    if hedge and hedge["value"] > 0 and (as_of - hedge["end"]).days <= 366:
+        line += (f". Hedge payments (e.g. capped call) {_m(hedge['value'])} "
+                 f"to {hedge['end']} — these usually offset part of the dilution")
+    sheet.add(line + ". The notes are part of total debt; do not subtract them twice.")
 
 
 def _near(series: dict[date, float], target: date, tolerance: int = 7) -> float | None:
@@ -422,7 +445,7 @@ def build_fact_sheet(ticker: str, trade_date: str, asset_type: str = "stock") ->
 
         if snap:
             try:
-                _sec_section(sheet, snap, ctx.get("ev"), as_of)
+                _sec_section(sheet, snap, ctx.get("ev"), as_of, ctx.get("shares"))
                 _guidance_section(sheet, snap.get("earnings_release"))
             except Exception as exc:  # noqa: BLE001
                 sheet.gaps.append(f"SEC section failed ({type(exc).__name__})")
