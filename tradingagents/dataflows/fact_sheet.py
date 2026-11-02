@@ -198,19 +198,24 @@ def _sec_section(sheet: _Sheet, snap: dict, ev: float | None, as_of: date):
         sheet.add(f"Quarterly revenue in XBRL is stale (latest {quarters[-1]['end']}); not shown")
         quarters = []
     if quarters:
-        sheet.lines += ["", "| Quarter ended | Revenue | YoY | Receivables | Receivable days |",
-                        "|---|---:|---:|---:|---:|"]
+        # Receivables columns only when the company tags them (not banks, REITs, ...).
+        has_ar = any(q.get("receivables") for q in quarters)
+        sheet.lines += ["", "| Quarter ended | Revenue | YoY |"
+                        + (" Receivables | Receivable days |" if has_ar else ""),
+                        "|---|---:|---:|" + ("---:|---:|" if has_ar else "")]
         for q in quarters:
             prior = next((p for p in all_quarters
                           if abs((q["end"] - p["end"]).days - 365) <= 7), None)
             yoy = q["revenue"] / prior["revenue"] - 1 if prior else None
-            dso = f"{q['dso']:.0f}" if q.get("dso") else "n/a"
-            sheet.lines.append(
-                f"| {q['end']} | {_m(q['revenue'])} | {_pct(yoy)} | "
-                f"{_m(q.get('receivables'))} | {dso} |")
-        sheet.add("Receivable days = receivables ÷ (quarter revenue ÷ days in quarter). "
-                  "Compare a quarter with the same quarter a year earlier; fiscal Q4 billing "
-                  "is often seasonal.")
+            row = f"| {q['end']} | {_m(q['revenue'])} | {_pct(yoy)} |"
+            if has_ar:
+                dso = f"{q['dso']:.0f}" if q.get("dso") else "n/a"
+                row += f" {_m(q.get('receivables'))} | {dso} |"
+            sheet.lines.append(row)
+        if has_ar:
+            sheet.add("Receivable days = receivables ÷ (quarter revenue ÷ days in quarter). "
+                      "Compare a quarter with the same quarter a year earlier; fiscal Q4 "
+                      "billing is often seasonal.")
         ttm = sum(q["revenue"] for q in quarters[-4:]) if len(quarters) >= 4 else None
         if ttm:
             sheet.add(f"TTM revenue: {_m(ttm)}" + (f"; EV / TTM revenue: {ev / ttm:.1f}x" if ev else ""))
@@ -239,22 +244,23 @@ def _sec_section(sheet: _Sheet, snap: dict, ev: float | None, as_of: date):
                   "Vendor 'Free Cash Flow' fields (e.g. yfinance) use a levered definition "
                   "and will differ; that difference is definitional, not a data conflict.")
 
+    missing = []
     for label, key in (("Stock-based compensation", "sbc"),
                        ("Cash paid for acquisitions", "acquisitions"),
                        ("Share buybacks", "buybacks")):
         item = snap.get(key)
-        if item and (as_of - item["end"]).days > 2 * 366:
-            sheet.add(f"{label}: no XBRL value since period ended {item['end']}")
-        elif item and item.get("period") == "ttm":
+        if not item or (as_of - item["end"]).days > 2 * 366:
+            missing.append(label.lower())
+        elif item.get("period") == "ttm":
             sheet.add(f"{label} (trailing 12 months to {item['end']}): {_m(item['value'])}")
         elif item and item.get("period") == "ytd":
             sheet.add(f"{label} (fiscal year to date, {item['months']} months to {item['end']}): "
                       f"{_m(item['value'])}")
-        elif item:
-            sheet.add(f"{label} (fiscal year ended {item['end']}): {_m(item['value'])}")
         else:
-            sheet.add(f"{label}: not found in XBRL filings (check the cash-flow statement; "
-                      "absence here does not mean zero)")
+            sheet.add(f"{label} (fiscal year ended {item['end']}): {_m(item['value'])}")
+    if missing:
+        sheet.gaps.append(f"no recent SEC XBRL value for {', '.join(missing)} — the company may "
+                          "use other tags; absence does not mean zero (see the cash-flow statement)")
 
 
 def _near(series: dict[date, float], target: date, tolerance: int = 7) -> float | None:
@@ -295,10 +301,10 @@ def _billings_table(sheet: _Sheet, quarters: list[dict], deferred: dict[date, fl
 
 
 def _guidance_section(sheet: _Sheet, release: dict | None):
-    sheet.section("Latest earnings release (8-K Exhibit 99.1)")
     if not release:
-        sheet.add("No earnings-release 8-K filed by the trade date was found.")
+        sheet.gaps.append("no earnings-release 8-K filed by the trade date was found")
         return
+    sheet.section("Latest earnings release (8-K Exhibit 99.1)")
     sheet.add(f"Filed {release['filed']}: {release.get('url')}")
     quoted = []
     if release.get("headline"):
@@ -306,7 +312,9 @@ def _guidance_section(sheet: _Sheet, release: dict | None):
     if release.get("outlook"):
         quoted += [_clean_block(release["outlook"])]
     else:
-        sheet.add("No outlook/guidance section found in the release text.")
+        sheet.gaps.append("no outlook section in the earnings release — many companies give "
+                          "guidance only on the earnings call (not fetched) or not at all; treat "
+                          "guidance as unknown, not as management silence or a negative signal")
     if quoted:
         sheet.lines += [
             "",

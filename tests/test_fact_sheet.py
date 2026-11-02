@@ -77,8 +77,9 @@ def test_core_figures(patched):
     assert "Fiscal year ends **July 31**" in out
     assert "| 2026-07-31 | $898.2M | +24.9% | $1,149.1M | 118 |" in out
     assert "(+27.4% YoY)" in out  # RPO
-    assert "Share buybacks: no XBRL value since period ended 2021-07-31" in out
-    assert "Cash paid for acquisitions: not found in XBRL filings" in out
+    # Missing or stale items go to one Data-gaps line instead of a line each.
+    assert "no recent SEC XBRL value for cash paid for acquisitions, share buybacks" in out
+    assert "Share buybacks" not in out.split("### Data gaps")[0]
     assert "Stock-based compensation (fiscal year ended 2026-07-31): $821.9M" in out
     assert "free cash flow (to 2026-07-31): **$779.1M**" in out
     assert "levered definition" in out
@@ -186,3 +187,21 @@ def test_ytd_buybacks_rendered(patched, monkeypatch):
     monkeypatch.setattr(fs.sec_edgar, "get_company_snapshot", lambda t, d: snap)
     out = fs.build_fact_sheet("ZS", "2026-10-23")
     assert "Share buybacks (fiscal year to date, 6 months to 2026-06-30): $1,911.0M" in out
+
+
+def test_receivable_columns_omitted_when_company_has_none(patched, monkeypatch):
+    quarters = [{**q, "receivables": None, "dso": None} for q in SNAP["quarters"]]
+    snap = {**SNAP, "quarters": quarters}
+    monkeypatch.setattr(fs.sec_edgar, "get_company_snapshot", lambda t, d: snap)
+    out = fs.build_fact_sheet("ZS", "2026-10-23")
+    assert "| 2026-07-31 | $898.2M | +24.9% |" in out
+    assert "Receivable" not in out and "n/a | n/a" not in out
+
+
+def test_missing_outlook_is_a_neutral_data_gap(patched, monkeypatch):
+    release = {**SNAP["earnings_release"], "outlook": None}
+    snap = {**SNAP, "earnings_release": release}
+    monkeypatch.setattr(fs.sec_edgar, "get_company_snapshot", lambda t, d: snap)
+    out = fs.build_fact_sheet("ZS", "2026-10-23")
+    gaps = out.split("### Data gaps")[1]
+    assert "not as management silence or a negative signal" in gaps
