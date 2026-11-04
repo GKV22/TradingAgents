@@ -77,3 +77,28 @@
   .role-fields { grid-template-columns: 1fr 1fr; }
   .general-grid { grid-template-columns: 1fr; }
 }
+
+.model-picker {
+  display: flex;
+  gap: 0.4rem;
+  align-items: center;
+}
+
+.model-picker select { flex: 1; min-width: 0; }
+
+.model-picker + input { margin-top: 0.4rem; }
+
+.refresh-btn {
+  flex: 0 0 auto;
+  padding: 0.35rem 0.6rem;
+  border: 1px solid #3a3f5c;
+  border-radius: 6px;
+  background: transparent;
+  color: #c7cdf5;
+  cursor: pointer;
+}
+
+.refresh-btn:hover { border-color: #7c86ff; }
+.refresh-btn:disabled { opacity: 0.6; cursor: wait; }
+
+.role-fields .field-model { flex: 2.2; min-width: 220px; }

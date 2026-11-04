@@ -96,3 +96,10 @@ export const ANALYST_OPTIONS = [
   { value: 'news', label: 'News' },
   { value: 'fundamentals', label: 'Fundamentals' },
 ]
+
+export interface ModelList {
+  models: string[]
+  source: 'built-in' | 'provider'
+  fetched_at: string | null
+  refreshable: boolean
+}

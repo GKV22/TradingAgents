@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import type { Settings, AgentLLMs, RoleLLM } from '../types'
+import type { Settings, AgentLLMs, RoleLLM, ModelList } from '../types'
 import { PROVIDERS, DEFAULT_MODELS, EFFORT_PROVIDERS, ROLE_LABELS, ROLE_DESC, ANALYST_OPTIONS } from '../types'
 import './Settings.css'
 
@@ -10,19 +10,55 @@ const DEPTH_OPTS = [
   { value: 3, label: '3 exchanges — thorough, higher cost' },
 ]
 const LANG_OPTS = ['en', 'zh', 'ja', 'ko', 'de', 'fr', 'es']
+const CUSTOM = '__custom__'
 
 function RoleRow({
   roleKey,
   value,
+  list,
+  modelLists,
   onChange,
+  onRefresh,
 }: {
   roleKey: keyof AgentLLMs
   value: RoleLLM
+  list: ModelList | undefined
+  modelLists: Record<string, ModelList>
   onChange: (v: RoleLLM) => void
+  onRefresh: (provider: string) => Promise<string | null>
 }) {
+  const models = list?.models ?? []
+  const [custom, setCustom] = useState(false)
+  const [refreshing, setRefreshing] = useState(false)
+  const [refreshErr, setRefreshErr] = useState<string | null>(null)
+
   const handleProvider = (p: string) => {
-    onChange({ provider: p, model: DEFAULT_MODELS[p] ?? '', base_url: null, reasoning_effort: null })
+    const offered = modelLists[p]?.models ?? []
+    const preferred = DEFAULT_MODELS[p]
+    const model = offered.includes(preferred) ? preferred : offered[0] ?? ''
+    setCustom(offered.length === 0)
+    setRefreshErr(null)
+    onChange({ provider: p, model, base_url: null, reasoning_effort: null })
   }
+
+  const handleModel = (m: string) => {
+    if (m === CUSTOM) {
+      setCustom(true)
+      return
+    }
+    setCustom(false)
+    onChange({ ...value, model: m })
+  }
+
+  const refresh = async () => {
+    setRefreshing(true)
+    setRefreshErr(await onRefresh(value.provider))
+    setRefreshing(false)
+  }
+
+  // A saved model the list does not contain is kept selectable (flagged), never silently replaced.
+  const unlisted = value.model !== '' && !models.includes(value.model)
+  const showInput = custom || models.length === 0
 
   const supportsEffort = EFFORT_PROVIDERS.has(value.provider)
 
@@ -43,13 +79,45 @@ function RoleRow({
             ))}
           </select>
         </div>
-        <div className="field">
+        <div className="field field-model">
           <label>Model</label>
-          <input
-            type="text"
-            value={value.model}
-            onChange={(e) => onChange({ ...value, model: e.target.value })}
-          />
+          <div className="model-picker">
+            {models.length > 0 && (
+              <select value={custom ? CUSTOM : value.model} onChange={(e) => handleModel(e.target.value)}>
+                {unlisted && !custom && (
+                  <option value={value.model}>{value.model} (not in list)</option>
+                )}
+                {models.map((m) => (
+                  <option key={m} value={m}>{m}</option>
+                ))}
+                <option value={CUSTOM}>Custom…</option>
+              </select>
+            )}
+            {list?.refreshable && (
+              <button
+                type="button"
+                className="refresh-btn"
+                onClick={refresh}
+                disabled={refreshing}
+                title={
+                  list.source === 'provider' && list.fetched_at
+                    ? `Fetched from ${value.provider} at ${list.fetched_at}`
+                    : `Built-in list — fetch the latest from ${value.provider}`
+                }
+              >
+                {refreshing ? '…' : '↻'}
+              </button>
+            )}
+          </div>
+          {showInput && (
+            <input
+              type="text"
+              placeholder="model ID"
+              value={value.model}
+              onChange={(e) => onChange({ ...value, model: e.target.value })}
+            />
+          )}
+          {refreshErr && <span className="err-msg">{refreshErr}</span>}
         </div>
         {supportsEffort && (
           <div className="field">
@@ -87,13 +155,30 @@ export default function Settings() {
   const [saving, setSaving] = useState(false)
   const [msg, setMsg] = useState<string | null>(null)
   const [err, setErr] = useState<string | null>(null)
+  const [modelLists, setModelLists] = useState<Record<string, ModelList>>({})
 
   useEffect(() => {
     fetch('/api/settings')
       .then((r) => r.json())
       .then((d) => setSettings(d as Settings))
       .catch(() => setErr('Failed to load settings'))
+    fetch('/api/models')
+      .then((r) => r.json())
+      .then((d) => setModelLists(d as Record<string, ModelList>))
+      .catch(() => setErr('Failed to load model lists'))
   }, [])
+
+  const refreshModels = async (provider: string): Promise<string | null> => {
+    try {
+      const r = await fetch(`/api/models/${encodeURIComponent(provider)}/refresh`, { method: 'POST' })
+      const d = await r.json()
+      if (!r.ok) return String(d.detail ?? r.statusText)
+      setModelLists((prev) => ({ ...prev, [provider]: d as ModelList }))
+      return null
+    } catch (e) {
+      return String(e)
+    }
+  }
 
   if (!settings) {
     return <div className="loading">{err ?? 'Loading…'}</div>
@@ -142,7 +227,10 @@ export default function Settings() {
               key={r}
               roleKey={r}
               value={settings.agent_llms[r]}
+              list={modelLists[settings.agent_llms[r].provider]}
+              modelLists={modelLists}
               onChange={(v) => setRole(r, v)}
+              onRefresh={refreshModels}
             />
           ))}
         </div>

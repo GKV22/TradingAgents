@@ -18,6 +18,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
+from web import model_list
 from web.settings import (
     _SETTINGS_PATH as _DEFAULT_SETTINGS_PATH,
     DEFAULT_WEB_SETTINGS,
@@ -57,6 +58,24 @@ async def get_settings() -> dict:
 async def post_settings(body: dict) -> dict:
     save_settings(body, SETTINGS_PATH)
     return body
+
+
+# ── Model lists for the Settings dropdowns ─────────────────────────────────
+
+
+@app.get("/api/models")
+async def get_models() -> dict:
+    return model_list.model_lists()
+
+
+@app.post("/api/models/{provider}/refresh")
+async def refresh_models(provider: str) -> dict:
+    if provider not in model_list.LISTABLE:
+        raise HTTPException(status_code=400, detail=f"{provider} has no model listing")
+    try:
+        return await asyncio.to_thread(model_list.refresh, provider)
+    except model_list.ModelListError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from None
 
 
 # ── Stop endpoint ──────────────────────────────────────────────────────────
