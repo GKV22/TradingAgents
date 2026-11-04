@@ -123,3 +123,9 @@ class TestSlotAllocation:
             _write(policies_dir, f"P{i:02d}", category=f"cat{i % 4}")
         out = ps.load_approved_policies(max_policies=7)
         assert sum(1 for line in out.splitlines() if line[:1].isdigit()) == 7
+
+
+def test_default_cap_fits_current_rule_library():
+    # 2026-11-03 review left 21 universal + up to 4 scoped rules; all must fit.
+    import inspect
+    assert inspect.signature(ps.load_approved_policies).parameters["max_policies"].default == 25

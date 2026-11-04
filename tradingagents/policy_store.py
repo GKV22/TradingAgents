@@ -125,7 +125,7 @@ def _select_diverse(policies: list[dict], max_policies: int) -> list[dict]:
 
 def load_approved_policies(
     applies_to: list[str] | None = None,
-    max_policies: int = 20,
+    max_policies: int = 25,
 ) -> str:
     """Return approved policies as a formatted markdown block, or empty string.
 

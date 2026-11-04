@@ -13,6 +13,7 @@ interface PolicyCandidate {
   created_from: string
   created_at: string
   status: string
+  retired_reason?: string
 }
 
 interface EvalRecord {
@@ -87,7 +88,11 @@ export default function Policies() {
   }
 
   const pendingCount = candidates.length
-  const approvedCount = approved.length
+  // Retired rules stay listed (labelled, last) but are not sent to agents or counted.
+  const approvedCount = approved.filter(p => p.status !== 'retired').length
+  const approvedSorted = [...approved].sort(
+    (a, b) => Number(a.status === 'retired') - Number(b.status === 'retired'),
+  )
 
   return (
     <div className="policies-page">
@@ -185,8 +190,8 @@ export default function Policies() {
                 {approved.length === 0 ? (
                   <p className="policy-empty">No approved rules yet. Approve candidates to build the rule library.</p>
                 ) : (
-                  approved.map(p => (
-                    <div key={p.policy_id} className="policy-card approved">
+                  approvedSorted.map(p => (
+                    <div key={p.policy_id} className={`policy-card ${p.status === 'retired' ? 'retired' : 'approved'}`}>
                       <div className="policy-card-header">
                         <span
                           className="severity-badge"
@@ -195,11 +200,15 @@ export default function Policies() {
                           {p.severity.toUpperCase()}
                         </span>
                         <span className="policy-category">{p.category.replace(/_/g, ' ')}</span>
+                        {p.status === 'retired' && <span className="retired-badge">RETIRED</span>}
                         <span className="policy-id">{p.policy_id}</span>
                       </div>
                       <div className="policy-rule">{p.rule}</div>
                       {p.applies_to?.length > 0 && (
                         <div className="policy-scope">Scope: {p.applies_to.join(', ')}</div>
+                      )}
+                      {p.status === 'retired' && p.retired_reason && (
+                        <div className="policy-scope">Retired: {p.retired_reason} — not sent to agents</div>
                       )}
                     </div>
                   ))
