@@ -228,3 +228,47 @@ def test_convertible_notes_without_price_point_to_filing(patched, monkeypatch):
     out = fs.build_fact_sheet("ZS", "2026-10-23")
     assert "conversion price not tagged for this date in XBRL" in out
     assert "new shares" not in out
+
+
+def test_newer_sec_cash_shown_after_stale_vendor_balance_sheet(patched, monkeypatch):
+    snap = {**SNAP, "liquidity": {"end": date(2026, 10, 31), "cash": 900e6, "sti": 2_600e6}}
+    monkeypatch.setattr(fs.sec_edgar, "get_company_snapshot", lambda t, d: snap)
+    out = fs.build_fact_sheet("ZS", "2026-11-20")
+    assert "Cash at 2026-10-31 (latest SEC filing): **$3,500.0M**" in out
+    # Same period as the vendor balance sheet: no duplicate line.
+    snap["liquidity"] = {"end": date(2026, 7, 31), "cash": 1.0, "sti": 0.0}
+    assert "latest SEC filing" not in fs.build_fact_sheet("ZS", "2026-11-20")
+
+
+def test_fcf_lists_capex_parts_and_missing_fcf_is_a_gap(patched, monkeypatch):
+    fcf = {"end": date(2026, 7, 31), "ocf": 73.1e6, "capex": 12.7e6, "fcf": 60.4e6,
+           "capex_parts": {"capitalised software": 12.7e6}}
+    monkeypatch.setattr(fs.sec_edgar, "get_company_snapshot", lambda t, d: {**SNAP, "fcf": fcf})
+    out = fs.build_fact_sheet("ZS", "2026-10-23")
+    assert "capital expenditure $12.7M (capitalised software $12.7M)" in out
+    monkeypatch.setattr(fs.sec_edgar, "get_company_snapshot",
+                        lambda t, d: {**SNAP, "fcf": None, "capex_tagged": True})
+    gaps = fs.build_fact_sheet("ZS", "2026-10-23").split("### Data gaps")[1]
+    assert "free cash flow not computed" in gaps
+    # Banks/REITs tag no capex: no FCF gap line for them.
+    monkeypatch.setattr(fs.sec_edgar, "get_company_snapshot",
+                        lambda t, d: {**SNAP, "fcf": None, "capex_tagged": False})
+    assert "free cash flow not computed" not in fs.build_fact_sheet("ZS", "2026-10-23")
+
+
+def test_untagged_short_term_investments_not_shown_as_zero(patched, monkeypatch):
+    snap = {**SNAP, "liquidity": {"end": date(2026, 10, 31), "cash": 900e6, "sti": None}}
+    monkeypatch.setattr(fs.sec_edgar, "get_company_snapshot", lambda t, d: snap)
+    out = fs.build_fact_sheet("ZS", "2026-11-20")
+    assert "cash **$900.0M** (short-term investments not tagged" in out
+    assert "short-term investments $0.0M" not in out
+
+
+def test_missing_vendor_debt_is_a_gap_not_silence(patched, monkeypatch):
+    class _NoDebt(_FakeTicker):
+        def __init__(self, *a):
+            super().__init__(*a)
+            self.quarterly_balance_sheet = self.quarterly_balance_sheet.drop(index="Total Debt")
+    monkeypatch.setattr(fs.yf, "Ticker", _NoDebt)
+    out = fs.build_fact_sheet("ZS", "2026-10-23")
+    assert "net cash not computed: the vendor balance sheet lacks total debt" in out

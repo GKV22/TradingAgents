@@ -334,3 +334,47 @@ def test_convertible_notes_point_in_time_and_zero_balance():
     zero = {"facts": {"us-gaap": {"ConvertibleDebtCurrent": {"units": {"USD": [
         _fact(None, "2025-12-31", 0.0, "2026-02-15", "10-K")]}}}}}
     assert edgar.convertible_notes(zero, date(2026, 10, 30)) is None
+
+
+# MNTN-style: capex tagged only as capitalised software; cash newer than the vendor.
+SOFTWARE_FACTS = {"facts": {"us-gaap": {
+    "NetCashProvidedByUsedInOperatingActivities": {"units": {"USD": [
+        _fact("2025-07-01", "2025-09-30", 9.3, "2025-11-05"),
+        _fact("2025-01-01", "2025-12-31", 60.0, "2026-02-20", "10-K"),
+        _fact("2025-01-01", "2025-09-30", 30.4, "2025-11-05"),
+        _fact("2026-01-01", "2026-03-31", 7.1, "2026-05-07"),
+        _fact("2026-01-01", "2026-06-30", 34.0, "2026-08-06"),
+        _fact("2026-01-01", "2026-09-30", 43.5, "2026-11-10"),
+    ]}},
+    "PaymentsToDevelopSoftware": {"units": {"USD": [
+        _fact("2025-07-01", "2025-09-30", 3.0, "2025-11-05"),
+        _fact("2025-01-01", "2025-12-31", 12.0, "2026-02-20", "10-K"),
+        _fact("2025-01-01", "2025-09-30", 8.7, "2025-11-05"),
+        _fact("2026-01-01", "2026-03-31", 3.4, "2026-05-07"),
+        _fact("2026-01-01", "2026-06-30", 7.0, "2026-08-06"),
+        _fact("2026-01-01", "2026-09-30", 9.4, "2026-11-10"),
+    ]}},
+    "CashAndCashEquivalentsAtCarryingValue": {"units": {"USD": [
+        _fact(None, "2026-06-30", 237.3, "2026-08-06"),
+        _fact(None, "2026-09-30", 252.3, "2026-11-10"),
+    ]}},
+    "MarketableSecuritiesCurrent": {"units": {"USD": [
+        _fact(None, "2026-09-30", 10.0, "2026-11-10"),
+    ]}},
+}}}
+
+
+def test_fcf_counts_capitalised_software_as_capex():
+    fcf = edgar.ttm_free_cash_flow(SOFTWARE_FACTS, date(2026, 11, 11))
+    # OCF TTM: Q4'25 (60.0-30.4) + 43.5 = 73.1; software: (12.0-8.7) + 9.4 = 12.7
+    assert fcf["end"] == date(2026, 9, 30)
+    assert fcf["ocf"] == pytest.approx(73.1)
+    assert fcf["capex_parts"] == {"capitalised software": pytest.approx(12.7)}
+    assert fcf["fcf"] == pytest.approx(60.4)
+
+
+def test_latest_liquidity_is_point_in_time():
+    assert edgar.latest_liquidity(SOFTWARE_FACTS, date(2026, 11, 11)) == {
+        "end": date(2026, 9, 30), "cash": 252.3, "sti": 10.0}
+    before = edgar.latest_liquidity(SOFTWARE_FACTS, date(2026, 11, 9))  # Q3 10-Q not yet filed
+    assert before == {"end": date(2026, 6, 30), "cash": 237.3, "sti": None}

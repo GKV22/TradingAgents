@@ -166,7 +166,10 @@ def _balance_section(sheet: _Sheet, ticker_obj, as_of: date, filed_period: date 
 
     sheet.section(f"Balance sheet (period ended {pd.Timestamp(col):%Y-%m-%d})")
     net_cash = None
-    if cash is not None and debt is not None:
+    if cash is None or debt is None:
+        sheet.gaps.append("net cash not computed: the vendor balance sheet lacks "
+                          + ("cash" if cash is None else "total debt"))
+    else:
         net_cash = cash + sti - debt
         sheet.add(f"Cash {_m(cash)} + short-term investments {_m(sti)} − total debt {_m(debt)} "
                   f"= **net {'cash' if net_cash >= 0 else 'debt'} {_m(abs(net_cash))}** "
@@ -174,7 +177,8 @@ def _balance_section(sheet: _Sheet, ticker_obj, as_of: date, filed_period: date 
     if shares_issued:
         sheet.add(f"Shares outstanding: {shares_issued / 1e6:,.1f}M"
                   + (f"; diluted weighted-average (quarter): {diluted / 1e6:,.1f}M" if diluted else ""))
-    out = {"net_cash": net_cash, "shares": shares_issued}
+    out = {"net_cash": net_cash, "shares": shares_issued,
+           "balance_period": pd.Timestamp(col).date()}
     if price and shares_issued and net_cash is not None:
         mcap = price * shares_issued
         sheet.add(f"Market cap at decision price: {_m(mcap)}; enterprise value: {_m(mcap - net_cash)}")
@@ -183,7 +187,7 @@ def _balance_section(sheet: _Sheet, ticker_obj, as_of: date, filed_period: date 
 
 
 def _sec_section(sheet: _Sheet, snap: dict, ev: float | None, as_of: date,
-                 shares: float | None = None):
+                 shares: float | None = None, balance_period: date | None = None):
     fye = _fye_label(snap.get("fiscal_year_end"))
     lf = snap.get("latest_filing")
     sheet.section("SEC filings (point-in-time; source: SEC EDGAR XBRL)")
@@ -238,12 +242,30 @@ def _sec_section(sheet: _Sheet, snap: dict, ev: float | None, as_of: date,
                   f"(TTM GAAP net income {_m(eps['net_income'])} ÷ "
                   f"{eps['diluted_shares'] / 1e6:,.1f}M diluted weighted-average shares)")
 
+    liq = snap.get("liquidity")
+    if liq and (balance_period is None or liq["end"] > balance_period):
+        if liq["sti"] is None:
+            amount = (f"cash **{_m(liq['cash'])}** (short-term investments not tagged for this "
+                      "date; check the balance sheet before treating them as zero)")
+        else:
+            amount = (f"**{_m(liq['cash'] + liq['sti'])}** (cash {_m(liq['cash'])} + short-term "
+                      f"investments {_m(liq['sti'])})")
+        sheet.add(f"Cash at {liq['end']} (latest SEC filing): {amount}. Newer than the vendor "
+                  "balance sheet above: use it for current cash; vendor quarterly tables may not "
+                  "include this period yet.")
+
     fcf = snap.get("fcf")
     if fcf:
+        parts = " + ".join(f"{k} {_m(v)}" for k, v in (fcf.get("capex_parts") or {}).items())
         sheet.add(f"Trailing-12-month free cash flow (to {fcf['end']}): **{_m(fcf['fcf'])}** = "
-                  f"operating cash flow {_m(fcf['ocf'])} − capital expenditure {_m(fcf['capex'])}. "
+                  f"operating cash flow {_m(fcf['ocf'])} − capital expenditure {_m(fcf['capex'])}"
+                  + (f" ({parts})" if parts else "") + ". "
                   "Vendor 'Free Cash Flow' fields (e.g. yfinance) use a levered definition "
                   "and will differ; that difference is definitional, not a data conflict.")
+    elif snap.get("capex_tagged"):
+        sheet.gaps.append("trailing-12-month free cash flow not computed: SEC XBRL lacks matching "
+                          "operating cash flow and capex (PP&E or capitalised software) for the "
+                          "same four quarters")
 
     _convertible_line(sheet, snap.get("convertible_notes"), shares, as_of)
 
@@ -445,7 +467,8 @@ def build_fact_sheet(ticker: str, trade_date: str, asset_type: str = "stock") ->
 
         if snap:
             try:
-                _sec_section(sheet, snap, ctx.get("ev"), as_of, ctx.get("shares"))
+                _sec_section(sheet, snap, ctx.get("ev"), as_of, ctx.get("shares"),
+                             ctx.get("balance_period"))
                 _guidance_section(sheet, snap.get("earnings_release"))
             except Exception as exc:  # noqa: BLE001
                 sheet.gaps.append(f"SEC section failed ({type(exc).__name__})")

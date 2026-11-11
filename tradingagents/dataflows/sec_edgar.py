@@ -65,6 +65,15 @@ BUYBACK_CONCEPTS = ("PaymentsForRepurchaseOfCommonStock", "PaymentsForRepurchase
 ACQUISITION_CONCEPTS = ("PaymentsToAcquireBusinessesNetOfCashAcquired",)
 OCF_CONCEPTS = ("NetCashProvidedByUsedInOperatingActivities",)
 CAPEX_CONCEPTS = ("PaymentsToAcquirePropertyPlantAndEquipment",)
+# Software companies often tag their main investment spend as capitalised software.
+SOFTWARE_CAPEX_CONCEPTS = ("PaymentsToDevelopSoftware",)
+CASH_CONCEPTS = ("CashAndCashEquivalentsAtCarryingValue",)
+SHORT_TERM_INVESTMENT_CONCEPTS = (
+    "ShortTermInvestments",
+    "MarketableSecuritiesCurrent",
+    "AvailableForSaleSecuritiesDebtSecuritiesCurrent",
+    "OtherShortTermInvestments",
+)
 CONVERTIBLE_TOTAL_CONCEPTS = ("ConvertibleNotesPayable", "ConvertibleDebt")
 CONVERTIBLE_NONCURRENT_CONCEPTS = ("ConvertibleLongTermNotesPayable", "ConvertibleDebtNoncurrent")
 CONVERTIBLE_CURRENT_CONCEPTS = ("ConvertibleNotesPayableCurrent", "ConvertibleDebtCurrent")
@@ -301,13 +310,36 @@ def _ttm_or_annual(facts: dict, concepts: tuple[str, ...], as_of: date) -> dict 
 
 
 def ttm_free_cash_flow(facts: dict, as_of: date) -> dict | None:
-    """TTM operating cash flow minus capital expenditure (PP&E), same quarters."""
+    """TTM operating cash flow minus capital expenditure, same quarters.
+
+    Capex is PP&E purchases plus capitalised software, counting each only when
+    its TTM ends on the same quarter as operating cash flow.
+    """
     ocf = ttm_flow(facts, OCF_CONCEPTS, as_of)
-    capex = ttm_flow(facts, CAPEX_CONCEPTS, as_of)
-    if not ocf or not capex or ocf["end"] != capex["end"]:
+    if not ocf:
         return None
-    return {"end": ocf["end"], "ocf": ocf["value"], "capex": capex["value"],
-            "fcf": ocf["value"] - capex["value"]}
+    parts = {}
+    for label, concepts in (("PP&E", CAPEX_CONCEPTS), ("capitalised software", SOFTWARE_CAPEX_CONCEPTS)):
+        item = ttm_flow(facts, concepts, as_of)
+        if item and item["end"] == ocf["end"]:
+            parts[label] = item["value"]
+    if not parts:
+        return None
+    capex = sum(parts.values())
+    return {"end": ocf["end"], "ocf": ocf["value"], "capex": capex,
+            "capex_parts": parts, "fcf": ocf["value"] - capex}
+
+
+def latest_liquidity(facts: dict, as_of: date) -> dict | None:
+    """Cash and short-term investments at the latest filed balance-sheet date."""
+    cash = max((_instants(facts, c, as_of) for c in CASH_CONCEPTS),
+               key=lambda r: max(r, default=date.min))
+    if not cash:
+        return None
+    end = max(cash)
+    sti = next((v for c in SHORT_TERM_INVESTMENT_CONCEPTS
+                if (v := _instants(facts, c, as_of).get(end)) is not None), None)
+    return {"end": end, "cash": cash[end], "sti": sti}
 
 
 def convertible_notes(facts: dict, as_of: date) -> dict | None:
@@ -497,6 +529,10 @@ def get_company_snapshot(ticker: str, as_of: date) -> dict | None:
         "acquisitions": _ttm_or_annual(facts, ACQUISITION_CONCEPTS, as_of),
         "buybacks": _ttm_or_annual(facts, BUYBACK_CONCEPTS, as_of),
         "fcf": ttm_free_cash_flow(facts, as_of),
+        "liquidity": latest_liquidity(facts, as_of),
+        # Banks, REITs and foreign filers tag no capex: no FCF gap to report for them.
+        "capex_tagged": any(_entries(facts, c, as_of)
+                            for c in CAPEX_CONCEPTS + SOFTWARE_CAPEX_CONCEPTS),
         "convertible_notes": convertible_notes(facts, as_of),
         "ttm_eps": ttm_gaap_eps(facts, as_of),
         "earnings_release": latest_earnings_release(cik, as_of),
